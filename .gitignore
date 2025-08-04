@@ -17,7 +17,8 @@
 .env.test.local
 .env.production.local
 /server/env.json
-/client/env.json
+/server/node_modules/
+/client/node_modules/
 
 npm-debug.log*
 yarn-debug.log*

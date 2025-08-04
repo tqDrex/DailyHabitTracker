@@ -3,6 +3,7 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CalendarPage from './pages/CalendarPage';
 import SignupPage  from './pages/SignUpPage';
+import ToDoPage from './pages/ToDoPage';
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/todo" element={<ToDoPage />} />
       </Routes>
     </BrowserRouter>
   );
