@@ -4,6 +4,8 @@ import DashboardPage from './pages/DashboardPage';
 import CalendarPage from './pages/CalendarPage';
 import SignupPage  from './pages/SignUpPage';
 import ToDoPage from './pages/ToDoPage';
+import ChangePasswordPage from "./pages/ChangePasswordPage";
+
 
 function App() {
   return (
@@ -14,6 +16,8 @@ function App() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/todo" element={<ToDoPage />} />
+        <Route path="/change-password" element={<ChangePasswordPage />} />
+
       </Routes>
     </BrowserRouter>
   );
