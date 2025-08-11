@@ -25,6 +25,9 @@ This is a full-stack habit tracking web application with user authentication and
 - **CalendarPage** (`Route path="/calendar"`)  
   - A calendar interface for habit tracking (in progress or to be expanded)
 
+- **ToDoPage** (`Route path="/todo"`)  
+  - A todo list interface for habit tracking (in progress or to be expanded)
+
 ---
 
 ## How to Run the App

@@ -1,0 +1,153 @@
+/* Dashboard.css */
+
+.dashboard {
+  font-family: 'Segoe UI', sans-serif;
+  color: #333;
+}
+
+/* Top bar */
+.dashboard__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(to right, #3f51b5, #303f9f);
+  color: #fff;
+  padding: 0.9rem 1.1rem;
+  border-radius: 12px;
+  margin: 24px auto 16px;
+  max-width: 1000px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+}
+
+.dashboard__brand {
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.dashboard__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn {
+  padding: 0.55rem 0.9rem;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: transform 0.06s ease, box-shadow 0.2s ease, background-color 0.3s ease;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn--primary {
+  background-color: #3f51b5;
+  color: #fff;
+}
+.btn--primary:hover { background-color: #303f9f; }
+
+.btn--warning {
+  background-color: #f59e0b;
+  color: #fff;
+}
+.btn--warning:hover { background-color: #d48806; }
+
+.btn--danger {
+  background-color: #e74c3c;
+  color: #fff;
+}
+.btn--danger:hover { background-color: #cf3e2f; }
+
+/* Main container */
+.dashboard__container {
+  max-width: 1000px;
+  margin: 0 auto 60px;
+  padding: 0 16px;
+}
+
+/* Card / panel */
+.card {
+  background: linear-gradient(to bottom right, #ffffff, #f7f7f7);
+  border-radius: 12px;
+  box-shadow: 0 8px 16px rgba(0,0,0,0.12);
+  padding: 1.25rem;
+  margin-top: 16px;
+}
+
+.card h1, .card h2, .card h3 {
+  margin: 0 0 0.75rem;
+  color: #333;
+}
+
+.card p {
+  margin: 0.25rem 0;
+}
+
+/* Header row inside a card */
+.card__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 0.5rem;
+}
+
+/* Avatar */
+.avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+}
+
+/* Simple grid if you add widgets later */
+.grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (min-width: 700px) {
+  .grid--2 { grid-template-columns: 1fr 1fr; }
+  .grid--3 { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* Small muted text */
+.muted {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+/* Nav block in the top bar */
+.dashboard__nav {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Nav link buttons styled to match your palette */
+.navlink {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.25);
+  padding: 0.45rem 0.8rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: transform 0.06s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+}
+.navlink:hover {
+  background: rgba(255,255,255,0.28);
+  transform: translateY(-1px);
+}
+.navlink--active {
+  background: #fff;
+  color: #303f9f;
+  border-color: #fff;
+}
+

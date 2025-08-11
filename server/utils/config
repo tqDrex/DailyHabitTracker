@@ -1,0 +1,28 @@
+// utils/config.js
+require("dotenv").config();
+
+module.exports = {
+  HOSTNAME: process.env.HOSTNAME || "localhost",
+  PORT: Number(process.env.PORT || 3000),
+  FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:3001",
+  OAUTH_CALLBACK_URL:
+    process.env.OAUTH_CALLBACK_URL || "http://localhost:3000/auth/google/callback",
+  AUTH_ALLOW_LOCAL: process.env.AUTH_ALLOW_LOCAL !== "false",
+  COOKIE: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+  },
+  VERIFY_CODE_TTL_MIN: Number(process.env.VERIFY_CODE_TTL_MIN || 15),
+  SMTP: {
+    HOST: process.env.SMTP_HOST,
+    USER: process.env.SMTP_USER,
+    PASS: process.env.SMTP_PASS,
+    PORT: Number(process.env.SMTP_PORT || 587),
+    FROM: process.env.SMTP_FROM || process.env.SMTP_USER,
+  },
+  GOOGLE: {
+    CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  },
+};

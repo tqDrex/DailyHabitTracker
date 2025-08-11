@@ -2,20 +2,22 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../style/LoginSignup.css';
 
-
+const API = 'http://localhost:3000'; // backend
 
 function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const navigate = useNavigate(); // Hook for navigation
+  const navigate = useNavigate();
 
   async function handleLogin(e) {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
 
     try {
-      const res = await fetch('http://localhost:3000/login', {
+      const res = await fetch(`${API}/login`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -23,20 +25,26 @@ function LoginPage() {
       });
 
       if (res.ok) {
-        console.log('Login successful');
-        navigate('/dashboard'); // Redirect to dashboard
+        navigate('/dashboard');
       } else {
         setError('Invalid credentials');
       }
     } catch (err) {
       console.log('Fetch error:', err);
       setError('Something went wrong');
+    } finally {
+      setSubmitting(false);
     }
+  }
+
+  function handleGoogleLogin() {
+    window.location.href = `${API}/auth/google`;
   }
 
   return (
     <form onSubmit={handleLogin} className="auth-form">
       <h2>Login</h2>
+
       <input
         type="text"
         placeholder="Username"
@@ -44,16 +52,39 @@ function LoginPage() {
         onChange={e => setUsername(e.target.value)}
         required
       /><br />
+
       <input
         type="password"
         placeholder="Password"
         value={password}
         onChange={e => setPassword(e.target.value)}
         required
-      /><br />
-      <button type="submit">Login</button>
+      />
+      <small style={{
+        display: 'block',
+        marginTop: '4px',
+        fontSize: '0.85em',
+        color: '#666'
+      }}>
+        Your username is your email without @gmail.com.
+      </small>
+      <br />
+
+      <button type="submit" disabled={submitting}>
+        {submitting ? 'Logging in…' : 'Login'}
+      </button>
+
       {error && <p style={{ color: 'red' }}>{error}</p>}
-      <p>Don't have an account? <a href="/signup">Sign up</a></p>
+
+      <div style={{ margin: '12px 0', textAlign: 'center' }}>— or —</div>
+
+      <button type="button" onClick={handleGoogleLogin} className="google-btn">
+        Continue with Google
+      </button>
+
+      <p style={{ marginTop: 12 }}>
+        Don't have an account? <a href="/signup">Sign up</a>
+      </p>
     </form>
   );
 }

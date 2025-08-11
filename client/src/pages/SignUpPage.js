@@ -1,72 +1,71 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import '../style/LoginSignup.css';
 
+const API = 'http://localhost:3000'; // backend
+
 function SignupPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [checking, setChecking] = useState(true);
+  const [me, setMe] = useState(null);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false); // new state for success message
 
-  async function handleSignup(e) {
-    e.preventDefault();
-    console.log('Form submitted');
-    setError('');
-    setSuccess(false); // reset success message
-
-    console.log('Username entered:', username);
-    console.log('Password entered:', password);
-
-    try {
-      const res = await fetch('http://localhost:3000/create', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-
-      console.log('Request sent to /create endpoint');
-
-      if (res.ok) {
-        console.log('Account creation succeeded');
-        setSuccess(true); // show success message
-      } else {
-        console.log('Account creation failed. Status:', res.status);
-        setError('Failed to create account');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API}/api/me`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!cancelled) {
+          if (res.ok) {
+            const data = await res.json();
+            setMe(data);
+          } else {
+            setMe(null);
+          }
+        }
+      } catch (e) {
+        if (!cancelled) setError('Could not verify login status.');
+      } finally {
+        if (!cancelled) setChecking(false);
       }
-    } catch (err) {
-      console.log('Fetch error occurred:', err);
-      setError('Something went wrong');
-    }
+    })();
+    return () => (cancelled = true);
+  }, []);
+
+  function handleGoogle() {
+    window.location.href = `${API}/auth/google`;
   }
 
   return (
-    <form onSubmit={handleSignup} className="auth-form">
-      <h2>Sign Up</h2>
-      <input
-        type="text"
-        placeholder="Username"
-        value={username}
-        onChange={e => {
-          console.log('Username input changed:', e.target.value);
-          setUsername(e.target.value);
-        }}
-        required
-      /><br />
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={e => {
-          console.log('Password input changed:', e.target.value);
-          setPassword(e.target.value);
-        }}
-        required
-      /><br />
-      <button type="submit">Create Account</button>
-      {success && <p style={{color: 'green'}}>Account created! Now you can log in.</p>}
-      {error && <p style={{color: 'red'}}>{error}</p>}
-      <p>Already have an account? <a href="/">Login</a></p>
-    </form>
+    <div className="auth-form">
+      <h2>{me ? 'You are signed in' : 'Welcome'}</h2>
+
+      {checking && <p>Checking session…</p>}
+
+      {!checking && !me && (
+        <>
+          <button type="button" onClick={handleGoogle} className="google-btn">
+            SignUp with Google
+          </button>
+          {error && <p style={{ color: 'red', marginTop: 8 }}>{error}</p>}
+          <p style={{ marginTop: 12 }}>
+            Already have an account?  <a href="/">Back to Login</a>
+
+          </p>
+
+        </>
+      )}
+
+      {!checking && me && (
+        <>
+          <p style={{ color: 'green' }}>
+            Signed in as <strong>{me.name}</strong> ({me.username})
+          </p>
+          <a className="primary-link" href="/dashboard">Go to Dashboard</a>
+        </>
+      )}
+    </div>
   );
 }
 
