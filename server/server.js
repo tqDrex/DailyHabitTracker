@@ -10,15 +10,20 @@ const env = require("./env.json"); // pg config
 
 // local modules
 const CONFIG = require("./utils/config");
+const buildRequireAuth = require("./utils/requireAuth");
 const Database = require("./infra/database");
 const Mailer = require("./infra/mailer");
 const UserRepository = require("./domain/userRepo");
 const AuthService = require("./services/authService");
 const EmailVerificationService = require("./services/emailVerificationService");
+const PasswordService = require("./services/passwordService");
+
 
 // routes
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
+const buildAccountRoutes = require("./routes/account");
+
 
 // wire up
 (async function main() {
@@ -27,6 +32,7 @@ const localRoutes = require("./routes/local");
 
   const mailer = new Mailer();
   const users = new UserRepository(db);
+  await users.ensureSchema();
   const auth = new AuthService();
   const emailVerify = new EmailVerificationService({ mailer });
 
@@ -45,6 +51,25 @@ const localRoutes = require("./routes/local");
 
   // Public ping
   app.get("/public", (_req, res) => res.send("A public message\n"));
+
+  // requireAuth middleware (uses cookie token -> username -> user record)
+  const requireAuth = buildRequireAuth({ auth, users });
+
+  // Adapt UserRepository to the interface expected by PasswordService
+  const passwordService = new PasswordService({
+    users: {
+      getById: async (id) => {
+        const { rows } = await users.getById(id);
+        return rows[0] || null;
+      },
+      updatePasswordAndClearFlag: async (userId, newHash) => {
+        await users.updatePasswordAndClearFlag(userId, newHash);
+      },
+    },
+  });
+
+  // Mount the account routes to expose POST /change-password
+  app.use(buildAccountRoutes({ requireAuth, passwordService }));
 
   // Errors
   app.use((err, _req, res, _next) => {
