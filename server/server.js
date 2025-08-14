@@ -18,23 +18,12 @@ const AuthService = require("./services/authService");
 const EmailVerificationService = require("./services/emailVerificationService");
 const PasswordService = require("./services/passwordService");
 
-// local modules
-const CONFIG = require("./utils/config");
-const Database = require("./infra/database");
-const Mailer = require("./infra/mailer");
-const UserRepository = require("./domain/userRepo");
-const AuthService = require("./services/authService");
-const EmailVerificationService = require("./services/emailVerificationService");
 
 // routes
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
 
-// wire up
-(async function main() {
-  const db = new Database(env);
-  await db.connect();
 
 // wire up
 (async function main() {

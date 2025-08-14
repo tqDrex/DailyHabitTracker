@@ -12,18 +12,20 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
   router.get(
     "/auth/google",
     passport.authenticate("google", {
-      scope: ["openid", "email", "profile"],
-      prompt: "select_account",
+      scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/calendar.app.created"],
+      accessType: "offline",
+      prompt: "consent",
       session: false,
       state: true,
+      includeGrantedScopes: true,
     })
   );
-
+  //local user
   router.get(
     "/auth/google/link",
     authorize,
     passport.authenticate("google", {
-      scope: ["openid", "email", "profile"],
+      scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/calendar.app.created"],
       prompt: "select_account",
       session: false,
       state: true,
