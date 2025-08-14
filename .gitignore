@@ -19,6 +19,8 @@
 /server/env.json
 /server/node_modules/
 /client/node_modules/
+/client/.env
+/client/credentials.json
 
 npm-debug.log*
 yarn-debug.log*
