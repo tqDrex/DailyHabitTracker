@@ -12,7 +12,7 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
   router.get(
     "/auth/google",
     passport.authenticate("google", {
-      scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/calendar"],
+      scope: ["openid", "email", "profile"],
       prompt: "select_account",
       session: false,
       state: true,
@@ -23,7 +23,7 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
     "/auth/google/link",
     authorize,
     passport.authenticate("google", {
-      scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/calendar"],
+      scope: ["openid", "email", "profile"],
       prompt: "select_account",
       session: false,
       state: true,
