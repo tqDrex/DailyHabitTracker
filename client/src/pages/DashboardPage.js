@@ -89,7 +89,6 @@ export default function DashboardPage() {
         <div className="dashboard__brand">Daily Habit Tracker</div>
 
         <nav className="dashboard__nav">
-          <NavButton to="/change-password">Change Password</NavButton>
           <NavButton to="/todo">To-Do</NavButton>
           <NavButton to="/calendar">Calendar</NavButton>
         </nav>
