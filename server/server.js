@@ -18,10 +18,12 @@ const AuthService = require("./services/authService");
 const EmailVerificationService = require("./services/emailVerificationService");
 const PasswordService = require("./services/passwordService");
 
+
 // routes (DI factories)
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
+
 
 // wire up
 (async function main() {

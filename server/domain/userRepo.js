@@ -22,6 +22,7 @@ const { Client } = require("pg");
  */
 class UserRepository {
   constructor(db) {
+<<<<<<< HEAD
     this.db = db; // a pg.Pool or any object exposing .query(sql, params)
   }
 
@@ -68,10 +69,14 @@ class UserRepository {
     } finally {
       await admin.end();
     }
+=======
+    this.db = db;
+>>>>>>> origin/main
   }
 
   /**
    * Ensure DB schema exists and is in a good state.
+<<<<<<< HEAD
    * - Advisory lock to avoid races
    * - Transaction for atomicity
    * - Idempotent CREATE/ALTER/INDEX/CONSTRAINT/trigger definitions
@@ -79,6 +84,16 @@ class UserRepository {
   async ensureSchema() {
     const lockKey = 873245901; // any stable 32-bit int
     await this.db.query("SELECT pg_advisory_lock($1)", [lockKey]);
+=======
+   * - Wraps in a transaction
+   * - Uses IF NOT EXISTS guards
+   * - Adds/repairs constraints/indexes idempotently
+   */
+  async ensureSchema() {
+    // Optional advisory lock to avoid races if multiple instances start together
+    await this.db.query("SELECT pg_advisory_lock(873245901)");
+
+>>>>>>> origin/main
     await this.db.query("BEGIN");
     try {
       // ---------------------------
@@ -118,7 +133,12 @@ class UserRepository {
       await this.db.query(`ALTER TABLE users ALTER COLUMN must_change_password SET DEFAULT false`);
       await this.db.query(`ALTER TABLE users ALTER COLUMN must_change_password SET NOT NULL`);
 
+<<<<<<< HEAD
       // Only enforce NOT NULL on password if there are no NULLs (keeps Google-only accounts valid)
+=======
+      // If you *know* every user has a password, you can enforce NOT NULL:
+      // Guard to only enforce if no NULLs exist.
+>>>>>>> origin/main
       await this.db.query(`
         DO $$
         BEGIN
@@ -166,7 +186,11 @@ class UserRepository {
         END$$;
       `);
 
+<<<<<<< HEAD
       // Helpful indexes
+=======
+      // Helpful indexes (idempotent)
+>>>>>>> origin/main
       await this.db.query(`CREATE INDEX IF NOT EXISTS users_username_idx ON users (username)`);
       await this.db.query(`CREATE INDEX IF NOT EXISTS users_email_idx ON users (email)`);
 
@@ -196,7 +220,11 @@ class UserRepository {
         END$$;
       `);
 
+<<<<<<< HEAD
       // One active code per user (partial unique index)
+=======
+      // Partial unique index (only one active code per user)
+>>>>>>> origin/main
       await this.db.query(`
         DO $$
         BEGIN
@@ -242,6 +270,7 @@ class UserRepository {
       await this.db.query(`CREATE INDEX IF NOT EXISTS tasks_user_id_idx ON tasks (user_id)`);
       await this.db.query(`CREATE INDEX IF NOT EXISTS tasks_deadline_date_idx ON tasks (deadline_date)`);
 
+<<<<<<< HEAD
       // ---------------------------
       // 4) HABIT_LOGS TABLE (per-task per-day ledger)
       // ---------------------------
@@ -274,6 +303,17 @@ class UserRepository {
       throw e;
     }
     await this.db.query("SELECT pg_advisory_unlock($1)", [lockKey]);
+=======
+      // Commit all schema work
+      await this.db.query("COMMIT");
+    } catch (e) {
+      await this.db.query("ROLLBACK");
+      await this.db.query("SELECT pg_advisory_unlock(873245901)");
+      throw e;
+    }
+
+    await this.db.query("SELECT pg_advisory_unlock(873245901)");
+>>>>>>> origin/main
   }
 
   // ---------------------------
@@ -299,8 +339,13 @@ class UserRepository {
   async usernameExists(username) {
     const { rows } = await this.db.query("SELECT 1 FROM users WHERE username=$1", [username]);
     return rows.length > 0;
+<<<<<<< HEAD
   }
 
+=======
+    }
+  
+>>>>>>> origin/main
   createLocal(username, hash) {
     return this.db.query(
       "INSERT INTO users (username, password) VALUES ($1, $2)",
@@ -355,7 +400,11 @@ class UserRepository {
 
   async getPublicProfile(username) {
     const { rows } = await this.db.query(
+<<<<<<< HEAD
       "SELECT id, username, email, name, avatar_url, must_change_password FROM users WHERE username=$1",
+=======
+      "SELECT username, email, name, avatar_url, must_change_password FROM users WHERE username=$1",
+>>>>>>> origin/main
       [username]
     );
     return rows[0] || null;
@@ -407,7 +456,7 @@ class UserRepository {
 
   /**
    * Update a task (partial).
-   * Pass `null` for timer/counter to clear them (must still satisfy CHECKs).
+   * Pass `null` for timer/counter to clear them (still must satisfy the CHECK).
    */
   updateTask({ taskId, userId, activityName, timer, counter, deadlineDate, repeat }) {
     return this.db.query(
@@ -437,6 +486,7 @@ class UserRepository {
   deleteTask({ taskId, userId }) {
     return this.db.query("DELETE FROM tasks WHERE id=$1 AND user_id=$2", [taskId, userId]);
   }
+<<<<<<< HEAD
 
   // ---------------------------
   // HABIT_LOGS: Generators & Write/Read APIs
@@ -820,6 +870,8 @@ getOverallDailyStreak({ userId }) {
   );
 }
 
+=======
+>>>>>>> origin/main
 }
 
 module.exports = UserRepository;
