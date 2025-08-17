@@ -19,7 +19,7 @@ const EmailVerificationService = require("./services/emailVerificationService");
 const PasswordService = require("./services/passwordService");
 
 
-// routes
+// routes (DI factories)
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
@@ -31,8 +31,11 @@ const buildAccountRoutes = require("./routes/account");
   await db.connect();
 
   const mailer = new Mailer();
+
+  // Repo (pool-like 'db' is fine as long as it exposes .query)
   const users = new UserRepository(db);
   await users.ensureSchema();
+
   const auth = new AuthService();
   const emailVerify = new EmailVerificationService({ mailer });
 
@@ -45,7 +48,14 @@ const buildAccountRoutes = require("./routes/account");
   // Google strategy (uses the same DI instances)
   require("./passport")({ CONFIG, users, db, mailer, auth });
 
-  // Routes
+  const streaksRouter = require("./routes/streaks")(users); // pass the repo instance you created
+  const habitsRouter  = require("./routes/habits")(users);
+
+  // Mount routers
+  app.use("/streaks", streaksRouter);
+  app.use("/habits",  habitsRouter);
+
+  // Auth/Account routes
   app.use(authRoutes({ CONFIG, users, auth, emailVerify, mailer }));
   if (CONFIG.AUTH_ALLOW_LOCAL) app.use(localRoutes({ users, auth })); // optional
 
