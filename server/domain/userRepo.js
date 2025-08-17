@@ -1,19 +1,84 @@
 // domain/userRepo.js
+const { Client } = require("pg");
+
+/**
+ * UserRepository — data access & schema management for users, tasks, and habit logs.
+ *
+ * Usage:
+ *   // 1) Ensure the local DB 'user_database' exists (optional, once at startup)
+ *   await UserRepository.ensureLocalDatabase({
+ *     user: process.env.PGUSER || "postgres",
+ *     password: process.env.PGPASSWORD || "",
+ *     host: process.env.PGHOST || "localhost",
+ *     port: Number(process.env.PGPORT || 5432),
+ *     dbName: "user_database",              // <-- will be created if missing
+ *   });
+ *
+ *   // 2) Create your Pool for 'user_database' and pass it into the repo:
+ *   const { Pool } = require("pg");
+ *   const pool = new Pool({ database: "user_database", user, password, host, port });
+ *   const userRepo = new UserRepository(pool);
+ *   await userRepo.ensureSchema();          // idempotent schema creation/repair
+ */
 class UserRepository {
   constructor(db) {
-    this.db = db;
+    this.db = db; // a pg.Pool or any object exposing .query(sql, params)
+  }
+
+  /**
+   * Ensure the given database exists in the local Postgres.
+   * - Connects to the default 'postgres' database
+   * - Checks pg_database
+   * - Creates the requested DB if missing
+   *
+   * @param {{user:string, password?:string, host?:string, port?:number, dbName:string}} cfg
+   */
+  static async ensureLocalDatabase(cfg) {
+    const {
+      user,
+      password = undefined,
+      host = "localhost",
+      port = 5432,
+      dbName = "user_database", // default per your ask
+    } = cfg;
+
+    const admin = new Client({
+      user,
+      password,
+      host,
+      port,
+      database: "postgres", // connect to default db to manage others
+    });
+
+    await admin.connect();
+    try {
+      const { rows } = await admin.query(
+        "SELECT 1 FROM pg_database WHERE datname = $1",
+        [dbName]
+      );
+      if (rows.length === 0) {
+        // CREATE DATABASE doesn't support IF NOT EXISTS; we gate it with the SELECT above.
+        await admin.query(`CREATE DATABASE "${dbName}"`);
+        // Optionally set the owner explicitly:
+        // await admin.query(`ALTER DATABASE "${dbName}" OWNER TO "${user}"`);
+        // Optionally set encoding/locale:
+        // await admin.query(`ALTER DATABASE "${dbName}" SET client_encoding TO 'UTF8'`);
+        // You can add any DB-level settings you prefer here.
+      }
+    } finally {
+      await admin.end();
+    }
   }
 
   /**
    * Ensure DB schema exists and is in a good state.
-   * - Wraps in a transaction
-   * - Uses IF NOT EXISTS guards
-   * - Adds/repairs constraints/indexes idempotently
+   * - Advisory lock to avoid races
+   * - Transaction for atomicity
+   * - Idempotent CREATE/ALTER/INDEX/CONSTRAINT/trigger definitions
    */
   async ensureSchema() {
-    // Optional advisory lock to avoid races if multiple instances start together
-    await this.db.query("SELECT pg_advisory_lock(873245901)");
-
+    const lockKey = 873245901; // any stable 32-bit int
+    await this.db.query("SELECT pg_advisory_lock($1)", [lockKey]);
     await this.db.query("BEGIN");
     try {
       // ---------------------------
@@ -53,8 +118,7 @@ class UserRepository {
       await this.db.query(`ALTER TABLE users ALTER COLUMN must_change_password SET DEFAULT false`);
       await this.db.query(`ALTER TABLE users ALTER COLUMN must_change_password SET NOT NULL`);
 
-      // If you *know* every user has a password, you can enforce NOT NULL:
-      // Guard to only enforce if no NULLs exist.
+      // Only enforce NOT NULL on password if there are no NULLs (keeps Google-only accounts valid)
       await this.db.query(`
         DO $$
         BEGIN
@@ -102,7 +166,7 @@ class UserRepository {
         END$$;
       `);
 
-      // Helpful indexes (idempotent)
+      // Helpful indexes
       await this.db.query(`CREATE INDEX IF NOT EXISTS users_username_idx ON users (username)`);
       await this.db.query(`CREATE INDEX IF NOT EXISTS users_email_idx ON users (email)`);
 
@@ -132,7 +196,7 @@ class UserRepository {
         END$$;
       `);
 
-      // Partial unique index (only one active code per user)
+      // One active code per user (partial unique index)
       await this.db.query(`
         DO $$
         BEGIN
@@ -178,15 +242,38 @@ class UserRepository {
       await this.db.query(`CREATE INDEX IF NOT EXISTS tasks_user_id_idx ON tasks (user_id)`);
       await this.db.query(`CREATE INDEX IF NOT EXISTS tasks_deadline_date_idx ON tasks (deadline_date)`);
 
-      // Commit all schema work
+      // ---------------------------
+      // 4) HABIT_LOGS TABLE (per-task per-day ledger)
+      // ---------------------------
+      await this.db.query(`
+        CREATE TABLE IF NOT EXISTS habit_logs (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          occurred_on DATE NOT NULL,
+          completed BOOLEAN NOT NULL DEFAULT FALSE,
+          completed_at TIMESTAMPTZ,
+          seconds_logged INTEGER CHECK (seconds_logged IS NULL OR seconds_logged >= 0),
+          UNIQUE (task_id, occurred_on)
+        )
+      `);
+
+      await this.db.query(`CREATE INDEX IF NOT EXISTS habit_logs_user_day_idx ON habit_logs (user_id, occurred_on)`);
+      await this.db.query(`CREATE INDEX IF NOT EXISTS habit_logs_user_task_idx ON habit_logs (user_id, task_id)`);
+      await this.db.query(`
+        CREATE INDEX IF NOT EXISTS habit_logs_user_today_open_idx
+        ON habit_logs (user_id, occurred_on)
+        WHERE completed = false
+      `);
+
+      // Commit schema
       await this.db.query("COMMIT");
     } catch (e) {
       await this.db.query("ROLLBACK");
-      await this.db.query("SELECT pg_advisory_unlock(873245901)");
+      await this.db.query("SELECT pg_advisory_unlock($1)", [lockKey]);
       throw e;
     }
-
-    await this.db.query("SELECT pg_advisory_unlock(873245901)");
+    await this.db.query("SELECT pg_advisory_unlock($1)", [lockKey]);
   }
 
   // ---------------------------
@@ -212,8 +299,8 @@ class UserRepository {
   async usernameExists(username) {
     const { rows } = await this.db.query("SELECT 1 FROM users WHERE username=$1", [username]);
     return rows.length > 0;
-    }
-  
+  }
+
   createLocal(username, hash) {
     return this.db.query(
       "INSERT INTO users (username, password) VALUES ($1, $2)",
@@ -268,7 +355,7 @@ class UserRepository {
 
   async getPublicProfile(username) {
     const { rows } = await this.db.query(
-      "SELECT username, email, name, avatar_url, must_change_password FROM users WHERE username=$1",
+      "SELECT id, username, email, name, avatar_url, must_change_password FROM users WHERE username=$1",
       [username]
     );
     return rows[0] || null;
@@ -320,7 +407,7 @@ class UserRepository {
 
   /**
    * Update a task (partial).
-   * Pass `null` for timer/counter to clear them (still must satisfy the CHECK).
+   * Pass `null` for timer/counter to clear them (must still satisfy CHECKs).
    */
   updateTask({ taskId, userId, activityName, timer, counter, deadlineDate, repeat }) {
     return this.db.query(
@@ -350,6 +437,389 @@ class UserRepository {
   deleteTask({ taskId, userId }) {
     return this.db.query("DELETE FROM tasks WHERE id=$1 AND user_id=$2", [taskId, userId]);
   }
+
+  // ---------------------------
+  // HABIT_LOGS: Generators & Write/Read APIs
+  // ---------------------------
+
+  /**
+   * Generate future occurrences for a user's repeating tasks into habit_logs.
+   * horizonDays: how far ahead to generate (default 60 days).
+   * Creates rows only if missing (UNIQUE(task_id, occurred_on) protects duplicates).
+   */
+  async generateOccurrences({ userId, horizonDays = 60 }) {
+    // DAILY
+    await this.db.query(
+      `
+      WITH params AS (
+        SELECT $1::int AS user_id, $2::int AS horizon
+      ),
+      days AS (
+        SELECT (CURRENT_DATE + i)::date AS d
+        FROM generate_series(0, (SELECT horizon FROM params)) AS gs(i)
+      )
+      INSERT INTO habit_logs (user_id, task_id, occurred_on)
+      SELECT t.user_id, t.id, d.d
+      FROM tasks t
+      JOIN days d ON t.repeat = 'daily'
+      WHERE t.user_id = (SELECT user_id FROM params)
+        AND (t.deadline_date IS NULL OR d.d >= t.deadline_date)
+      ON CONFLICT (task_id, occurred_on) DO NOTHING
+      `,
+      [userId, horizonDays]
+    );
+
+    // WEEKLY (same weekday as the task's deadline_date; if null, use today's weekday)
+    await this.db.query(
+      `
+      WITH params AS (
+        SELECT $1::int AS user_id, $2::int AS horizon
+      ),
+      anchors AS (
+        SELECT
+          t.id AS task_id,
+          t.user_id,
+          COALESCE(t.deadline_date, CURRENT_DATE) AS anchor,
+          EXTRACT(DOW FROM COALESCE(t.deadline_date, CURRENT_DATE))::int AS dow
+        FROM tasks t
+        WHERE t.user_id = (SELECT user_id FROM params) AND t.repeat = 'weekly'
+      ),
+      weeks AS (
+        SELECT
+          a.task_id, a.user_id,
+          (date_trunc('week', CURRENT_DATE)::date + a.dow + (7 * i))::date AS d
+        FROM anchors a
+        CROSS JOIN generate_series(0, CEIL((SELECT horizon FROM params) / 7.0)::int) AS gs(i)
+      )
+      INSERT INTO habit_logs (user_id, task_id, occurred_on)
+      SELECT w.user_id, w.task_id, w.d
+      FROM weeks w
+      JOIN tasks t ON t.id = w.task_id
+      WHERE w.d >= COALESCE(t.deadline_date, CURRENT_DATE)
+      ON CONFLICT (task_id, occurred_on) DO NOTHING
+      `,
+      [userId, horizonDays]
+    );
+
+    // MONTHLY (same day-of-month as deadline_date)
+    await this.db.query(
+      `
+      WITH params AS (
+        SELECT $1::int AS user_id, $2::int AS horizon
+      ),
+      anchors AS (
+        SELECT t.id AS task_id, t.user_id, COALESCE(t.deadline_date, CURRENT_DATE)::date AS anchor
+        FROM tasks t
+        WHERE t.user_id = (SELECT user_id FROM params) AND t.repeat = 'monthly'
+      ),
+      months AS (
+        SELECT
+          a.task_id, a.user_id,
+          (a.anchor + (INTERVAL '1 month' * i))::date AS d
+        FROM anchors a
+        CROSS JOIN generate_series(0, CEIL((SELECT horizon FROM params) / 30.0)::int) gs(i)
+      )
+      INSERT INTO habit_logs (user_id, task_id, occurred_on)
+      SELECT m.user_id, m.task_id, m.d
+      FROM months m
+      JOIN tasks t ON t.id = m.task_id
+      WHERE m.d >= COALESCE(t.deadline_date, CURRENT_DATE)
+      ON CONFLICT (task_id, occurred_on) DO NOTHING
+      `,
+      [userId, horizonDays]
+    );
+
+    // YEARLY (same month/day as deadline_date)
+    await this.db.query(
+      `
+      WITH params AS (
+        SELECT $1::int AS user_id, $2::int AS horizon
+      ),
+      anchors AS (
+        SELECT t.id AS task_id, t.user_id, COALESCE(t.deadline_date, CURRENT_DATE)::date AS anchor
+        FROM tasks t
+        WHERE t.user_id = (SELECT user_id FROM params) AND t.repeat = 'yearly'
+      ),
+      years AS (
+        SELECT
+          a.task_id, a.user_id,
+          (a.anchor + (INTERVAL '1 year' * i))::date AS d
+        FROM anchors a
+        CROSS JOIN generate_series(0, GREATEST(1, CEIL((SELECT horizon FROM params) / 365.0)::int)) gs(i)
+      )
+      INSERT INTO habit_logs (user_id, task_id, occurred_on)
+      SELECT y.user_id, y.task_id, y.d
+      FROM years y
+      JOIN tasks t ON t.id = y.task_id
+      WHERE y.d >= COALESCE(t.deadline_date, CURRENT_DATE)
+      ON CONFLICT (task_id, occurred_on) DO NOTHING
+      `,
+      [userId, horizonDays]
+    );
+  }
+
+  /**
+   * Ensure a single log row exists for (user, task, date).
+   * Safe to call before markComplete; uses ON CONFLICT DO NOTHING.
+   */
+  upsertLogForDate({ userId, taskId, date }) {
+    return this.db.query(
+      `
+      INSERT INTO habit_logs (user_id, task_id, occurred_on)
+      VALUES ($1, $2, $3::date)
+      ON CONFLICT (task_id, occurred_on) DO NOTHING
+      `,
+      [userId, taskId, date]
+    );
+  }
+
+  /**
+   * Mark a habit as completed for a given date. Idempotent.
+   * Optionally record seconds_logged (stores the greater of existing vs new).
+   */
+  async markComplete({ userId, taskId, date, secondsLogged = null }) {
+    await this.upsertLogForDate({ userId, taskId, date });
+    if (secondsLogged == null) {
+      return this.db.query(
+        `
+        UPDATE habit_logs
+           SET completed = TRUE,
+               completed_at = NOW()
+         WHERE user_id = $1 AND task_id = $2 AND occurred_on = $3::date
+        `,
+        [userId, taskId, date]
+      );
+    } else {
+      return this.db.query(
+        `
+        UPDATE habit_logs
+           SET completed = TRUE,
+               completed_at = NOW(),
+               seconds_logged = GREATEST(COALESCE(seconds_logged, 0), $4::int)
+         WHERE user_id = $1 AND task_id = $2 AND occurred_on = $3::date
+        `,
+        [userId, taskId, date, secondsLogged]
+      );
+    }
+  }
+
+  /**
+   * Get the "agenda" for a given date: what habits occur on that day and status.
+   */
+  getAgendaForDate({ userId, date }) {
+    return this.db.query(
+      `
+      SELECT
+        t.id AS task_id,
+        t.activity_name,
+        t.timer,
+        t.counter,
+        t.repeat,
+        hl.occurred_on AS date,
+        COALESCE(hl.completed, FALSE) AS completed,
+        hl.completed_at,
+        hl.seconds_logged
+      FROM tasks t
+      LEFT JOIN habit_logs hl
+        ON hl.task_id = t.id AND hl.occurred_on = $2::date
+      WHERE t.user_id = $1
+        AND (
+          (t.repeat IS NULL AND t.deadline_date = $2::date) OR
+          (t.repeat = 'daily') OR
+          (t.repeat = 'weekly' AND EXTRACT(DOW FROM COALESCE(t.deadline_date, $2::date)) = EXTRACT(DOW FROM $2::date)) OR
+          (t.repeat = 'monthly' AND t.deadline_date IS NOT NULL AND EXTRACT(DAY FROM t.deadline_date) = EXTRACT(DAY FROM $2::date)) OR
+          (t.repeat = 'yearly'  AND t.deadline_date IS NOT NULL
+             AND EXTRACT(MONTH FROM t.deadline_date) = EXTRACT(MONTH FROM $2::date)
+             AND EXTRACT(DAY   FROM t.deadline_date) = EXTRACT(DAY   FROM $2::date))
+        )
+      ORDER BY t.activity_name
+      `,
+      [userId, date]
+    );
+  }
+
+  /**
+   * Completion rate by day over the last N days (default: 14).
+   * Returns rows: day, total, done, pct_done
+   */
+  getDailyCompletion({ userId, days = 14 }) {
+    return this.db.query(
+      `
+      WITH days AS (
+        SELECT generate_series(CURRENT_DATE - ($2::int - 1) * INTERVAL '1 day', CURRENT_DATE, INTERVAL '1 day')::date AS day
+      ),
+      agg AS (
+        SELECT hl.occurred_on AS day,
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE completed) AS done
+        FROM habit_logs hl
+        WHERE hl.user_id = $1
+          AND hl.occurred_on BETWEEN CURRENT_DATE - ($2::int - 1) * INTERVAL '1 day' AND CURRENT_DATE
+        GROUP BY hl.occurred_on
+      )
+      SELECT
+        d.day,
+        COALESCE(a.total,0) AS total,
+        COALESCE(a.done,0)  AS done,
+        CASE WHEN COALESCE(a.total,0)=0 THEN 0
+             ELSE ROUND(100.0 * a.done / a.total, 1)
+        END AS pct_done
+      FROM days d
+      LEFT JOIN agg a USING (day)
+      ORDER BY d.day
+      `,
+      [userId, days]
+    );
+  }
+
+  /**
+   * Completion rate by ISO week over the last N weeks (default: 8).
+   * Returns rows: wk_start, total, done, pct_done
+   */
+  getWeeklyCompletion({ userId, weeks = 8 }) {
+    return this.db.query(
+      `
+      WITH weeks AS (
+        SELECT date_trunc('week', (CURRENT_DATE - (i*7))::date)::date AS wk_start
+        FROM generate_series(0, $2::int-1) AS g(i)
+      ),
+      agg AS (
+        SELECT date_trunc('week', occurred_on)::date AS wk_start,
+               COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE completed) AS done
+        FROM habit_logs
+        WHERE user_id = $1
+          AND occurred_on >= (SELECT MIN(wk_start) FROM weeks)
+        GROUP BY 1
+      )
+      SELECT
+        w.wk_start,
+        COALESCE(a.total,0) AS total,
+        COALESCE(a.done,0)  AS done,
+        CASE WHEN COALESCE(a.total,0)=0 THEN 0
+             ELSE ROUND(100.0 * a.done / a.total, 1)
+        END AS pct_done
+      FROM weeks w
+      LEFT JOIN agg a USING (wk_start)
+      ORDER BY w.wk_start
+      `,
+      [userId, weeks]
+    );
+  }
+
+  /**
+   * Current streak length (in days) per habit for this user.
+   * Returns: task_id, activity_name, current_streak_days
+   */
+  getCurrentStreaks({ userId }) {
+    return this.db.query(
+      `
+      WITH user_occ AS (
+        SELECT t.id AS task_id, t.activity_name, hl.occurred_on, hl.completed
+        FROM tasks t
+        JOIN habit_logs hl ON hl.task_id = t.id
+        WHERE t.user_id = $1
+      ),
+      marks AS (
+        SELECT
+          uo.task_id,
+          uo.activity_name,
+          uo.occurred_on,
+          uo.completed,
+          SUM(CASE WHEN NOT uo.completed THEN 1 ELSE 0 END)
+            OVER (PARTITION BY uo.task_id ORDER BY uo.occurred_on DESC
+                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS blockers_from_end
+        FROM user_occ uo
+      )
+      SELECT
+        task_id,
+        activity_name,
+        COALESCE(SUM(CASE WHEN completed AND blockers_from_end = 0 THEN 1 ELSE 0 END), 0) AS current_streak_days
+      FROM marks
+      GROUP BY task_id, activity_name
+      ORDER BY current_streak_days DESC, activity_name
+      `,
+      [userId]
+    );
+  }
+
+  /**
+   * Best (all-time max) streak per habit.
+   * Returns: task_id, activity_name, best_streak_days
+   */
+  getBestStreaks({ userId }) {
+    return this.db.query(
+      `
+      WITH comp AS (
+        SELECT task_id, occurred_on
+        FROM habit_logs
+        WHERE user_id = $1 AND completed = TRUE
+      ),
+      grp AS (
+        SELECT
+          task_id,
+          occurred_on,
+          occurred_on - (ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY occurred_on))::int * INTERVAL '1 day' AS grp_key
+        FROM comp
+      ),
+      lens AS (
+        SELECT task_id, COUNT(*) AS streak_len
+        FROM grp
+        GROUP BY task_id, grp_key
+      )
+      SELECT t.id AS task_id, t.activity_name, COALESCE(MAX(l.streak_len), 0) AS best_streak_days
+      FROM tasks t
+      LEFT JOIN lens l ON l.task_id = t.id
+      WHERE t.user_id = $1
+      GROUP BY t.id, t.activity_name
+      ORDER BY best_streak_days DESC, t.activity_name
+      `,
+      [userId]
+    );
+  }
+
+  /**
+ * Overall daily streak across any habit (current & best).
+ * Returns one row: { current_streak_days, best_streak_days }
+ */
+getOverallDailyStreak({ userId }) {
+  return this.db.query(
+    `
+    WITH finished AS (
+      SELECT DISTINCT occurred_on
+      FROM habit_logs
+      WHERE user_id = $1 AND completed = TRUE
+    ),
+    groups AS (
+      SELECT
+        occurred_on,
+        occurred_on - (ROW_NUMBER() OVER (ORDER BY occurred_on))::int * INTERVAL '1 day' AS grp
+      FROM finished
+    ),
+    lengths AS (
+      SELECT COUNT(*) AS streak_len
+      FROM groups
+      GROUP BY grp
+    ),
+    current_run AS (
+      -- walk backwards from today until the first missed day
+      SELECT COUNT(*) AS len
+      FROM generate_series(0, 5000) AS g(offset)
+      WHERE (CURRENT_DATE - g.offset) IN (SELECT occurred_on FROM finished)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM generate_series(0, g.offset) x(o)
+        WHERE (CURRENT_DATE - x.o) NOT IN (SELECT occurred_on FROM finished)
+      )
+    )
+    SELECT
+      COALESCE((SELECT len FROM current_run LIMIT 1), 0) AS current_streak_days,
+      COALESCE((SELECT MAX(streak_len) FROM lengths), 0) AS best_streak_days
+    `,
+    [userId]
+  );
+}
+
 }
 
 module.exports = UserRepository;

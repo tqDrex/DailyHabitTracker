@@ -53,14 +53,14 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
   // Session / profile
   router.get("/private", authorize, (_req, res) => res.send("A private message\n"));
 
-  router.get(
-    "/api/me",
+  router.get("/api/me",
     asyncHandler(async (req, res) => {
       const username = auth.getLoggedInUsername(req);
       if (!username) return res.status(401).json({ error: "Not logged in" });
       const profile = await users.getPublicProfile(username);
       if (!profile) return res.status(401).json({ error: "Not logged in" });
       res.json({
+        id: profile.id,
         username: profile.username,
         name: profile.name || profile.username,
         email: profile.email || null,

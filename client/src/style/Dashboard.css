@@ -151,3 +151,55 @@
   border-color: #fff;
 }
 
+/* Stats grid */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  background: var(--cardSubtle, #f8f8f8);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.stat__value {
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+.stat__label {
+  font-size: 0.85rem;
+}
+
+/* Rows inside streak lists */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  gap: 8px;
+}
+
+.row + .row {
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.row .truncate {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Badge for streak days */
+.badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #eef2ff;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+
