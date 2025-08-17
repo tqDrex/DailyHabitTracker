@@ -23,6 +23,7 @@ const PasswordService = require("./services/passwordService");
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
+const tasks = require("./routes/tasks");
 
 
 // wire up
@@ -50,10 +51,12 @@ const buildAccountRoutes = require("./routes/account");
 
   const streaksRouter = require("./routes/streaks")(users); // pass the repo instance you created
   const habitsRouter  = require("./routes/habits")(users);
+  const tasksRouter = require("./routes/tasks")(users);
 
   // Mount routers
   app.use("/streaks", streaksRouter);
   app.use("/habits",  habitsRouter);
+  app.use("/tasks", tasksRouter);
 
   // Auth/Account routes
   app.use(authRoutes({ CONFIG, users, auth, emailVerify, mailer }));

@@ -4,22 +4,55 @@ import '../style/ToDoPage.css';
 const API = 'http://localhost:3000';
 
 export default function ToDoPage() {
-const [rows, setRows] = useState([]);
+  const [user, setUser] = useState(null);
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API}/`)
-    fetch(`${API}/tasks`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => {
-        setRows(data.rows);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Error fetching tasks:", err);
-        setLoading(false);
-      })
-  });
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch("http://localhost:3000/api/me", {
+          credentials: "include",
+          signal: ac.signal,
+        });
+        if (!res.ok) throw new Error("Not logged in");
+        const data = await res.json();
+        if (!ac.signal.aborted) setUser(data);
+      } catch {
+        if (!ac.signal.aborted) window.location.href = "/";
+      }
+    })();
+    return () => ac.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const ac = new AbortController();
+
+    (async () => {
+      try{
+        setLoading(true);
+        const taskRes = await Promise(fetch(`${API}/tasks?userId=${user.id}`, {
+            credentials: "include",
+            signal: ac.signal,
+          }));
+          const taskRows = await Promise(
+            taskRes.json()
+          );
+          if(!ac.signal.aborted) {
+            setRows(data.rows);
+          }
+      } catch {
+        if (!ac.signal.aborted) {
+          setRows([]);
+        }
+      } finally {
+        if (!ac.signal.aborted) setLoading(false);
+      }
+    })
+  })();
+
 
   const addRow = () => {
     const newId = rows.length + 1;
