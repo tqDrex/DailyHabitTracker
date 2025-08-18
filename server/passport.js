@@ -123,6 +123,27 @@ async function ensureAppCalendar({db, user, CONFIG}) {
 }
 
 module.exports = function configureGoogle({ CONFIG, users, db, mailer, auth }) {
+  passport.serializeUser(function(user, done) {
+    done(null, user.username);
+  });
+
+  passport.deserializeUser(async function(username, done) {
+    try {
+      console.log(`Deserializing user with username: ${username}`);
+      const {rows} = await users.getByUsername(username);
+      const user = rows[0] || null;
+      if (user) {
+        console.log(`Successfully deserialized user: ${user.username}`);
+      } else {
+        console.error(`Failed to deserialize user. Username not found: ${username}`);
+      }
+      done(null, user);
+    } catch (err) {
+      console.error("Error during deserialization:", err);
+      done(err);
+    }
+  });
+
   passport.use(
     new GoogleStrategy(
       {

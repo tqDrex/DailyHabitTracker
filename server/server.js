@@ -5,6 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const passport = require("passport");
+const session = require("express-session");
 
 const env = require("./env.json"); // pg config
 
@@ -40,7 +41,15 @@ const buildAccountRoutes = require("./routes/account");
   app.use(cors({ origin: CONFIG.FRONTEND_URL, credentials: true }));
   app.use(express.json());
   app.use(cookieParser());
+  app.use(
+    session({
+      secret: CONFIG.SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+    })
+  );
   app.use(passport.initialize());
+  app.use(passport.session());
 
   // Google strategy (uses the same DI instances)
   require("./passport")({ CONFIG, users, db, mailer, auth });
