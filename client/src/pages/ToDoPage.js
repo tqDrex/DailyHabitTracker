@@ -1,18 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import '../style/ToDoPage.css';
+import React, { useEffect, useState } from "react";
+import "../style/ToDoPage.css";
 
-const API = 'http://localhost:3000';
+const API = "http://localhost:3000";
 
 export default function ToDoPage() {
   const [user, setUser] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // 1) Load session/user
   useEffect(() => {
     const ac = new AbortController();
+
     (async () => {
       try {
-        const res = await fetch("http://localhost:3000/api/me", {
+        const res = await fetch(`${API}/api/me`, {
           credentials: "include",
           signal: ac.signal,
         });
@@ -23,41 +25,40 @@ export default function ToDoPage() {
         if (!ac.signal.aborted) window.location.href = "/";
       }
     })();
+
     return () => ac.abort();
   }, []);
 
+  // 2) Load tasks after we have a user
   useEffect(() => {
     if (!user?.id) return;
     const ac = new AbortController();
 
     (async () => {
-      try{
+      try {
         setLoading(true);
-        const taskRes = await Promise(fetch(`${API}/tasks?userId=${user.id}`, {
-            credentials: "include",
-            signal: ac.signal,
-          }));
-          const taskRows = await Promise(
-            taskRes.json()
-          );
-          if(!ac.signal.aborted) {
-            setRows(data.rows);
-          }
+        const taskRes = await fetch(`${API}/tasks`, {
+          credentials: "include",
+          signal: ac.signal,
+        });
+        if (!taskRes.ok) throw new Error("Task load failed");
+        // /tasks returns an array (not {rows})
+        const taskRows = await taskRes.json();
+        if (!ac.signal.aborted) setRows(taskRows || []);
       } catch {
-        if (!ac.signal.aborted) {
-          setRows([]);
-        }
+        if (!ac.signal.aborted) setRows([]);
       } finally {
         if (!ac.signal.aborted) setLoading(false);
       }
-    })
-  })();
+    })();
 
+    return () => ac.abort();
+  }, [user?.id]);
 
   const addRow = () => {
     const newId = rows.length + 1;
-    const newRow = { id: newId, name: `Item ${newId}` };
-    setRows([...rows, newRow]);
+    const newRow = { id: newId, activity_name: `Item ${newId}` };
+    setRows((r) => [...r, newRow]);
   };
 
   const onClick = () => {
@@ -70,9 +71,9 @@ export default function ToDoPage() {
   return (
     <div>
       <h1>To-Do Page</h1>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div border="10" style={{borderStyle: "ridge"}}>
-          <table border="1" cellPadding="10" style={{borderCollapse: 'collapse'}}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ borderStyle: "ridge", borderWidth: 10 }}>
+          <table border="1" cellPadding="10" style={{ borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th>Activity Name</th>
@@ -83,7 +84,7 @@ export default function ToDoPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(row => (
+              {rows.map((row) => (
                 <tr key={row.id}>
                   <td>{row.activity_name}</td>
                   <td>{row.timer}</td>
@@ -95,7 +96,7 @@ export default function ToDoPage() {
             </tbody>
           </table>
         </div>
-        <button className="circle-btn" onClick={onClick} aria-label="Add" style={{marginTop: '16px'}}>
+        <button className="circle-btn" onClick={onClick} aria-label="Add" style={{ marginTop: 16 }}>
           +
         </button>
       </div>

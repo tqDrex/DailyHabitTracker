@@ -9,7 +9,7 @@ const session = require("express-session");
 
 const env = require("./env.json"); // pg config
 
-// local modules
+// Local modules
 const CONFIG = require("./utils/config");
 const buildRequireAuth = require("./utils/requireAuth");
 const Database = require("./infra/database");
@@ -19,32 +19,38 @@ const AuthService = require("./services/authService");
 const EmailVerificationService = require("./services/emailVerificationService");
 const PasswordService = require("./services/passwordService");
 
-
-// routes (DI factories)
+// Routes (DI factories)
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
-const tasks = require("./routes/tasks");
 
-
-// wire up
 (async function main() {
+  // ----- Infra -----
   const db = new Database(env);
   await db.connect();
 
   const mailer = new Mailer();
 
-  // Repo (pool-like 'db' is fine as long as it exposes .query)
+  // ----- Domain / Services -----
   const users = new UserRepository(db);
   await users.ensureSchema();
 
   const auth = new AuthService();
   const emailVerify = new EmailVerificationService({ mailer });
 
+  // ----- App -----
   const app = express();
-  app.use(cors({ origin: CONFIG.FRONTEND_URL, credentials: true }));
+
+  app.use(
+    cors({
+      origin: CONFIG.FRONTEND_URL,
+      credentials: true,
+    })
+  );
   app.use(express.json());
   app.use(cookieParser());
+
+  // Optional session (Passport uses this; your app auth uses a custom cookie)
   app.use(
     session({
       secret: CONFIG.SESSION_SECRET,
@@ -52,32 +58,34 @@ const tasks = require("./routes/tasks");
       saveUninitialized: false,
     })
   );
+
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Google strategy (uses the same DI instances)
+  // Google OAuth strategy (shares DI instances)
   require("./passport")({ CONFIG, users, db, mailer, auth });
 
-  const streaksRouter = require("./routes/streaks")(users); // pass the repo instance you created
-  const habitsRouter  = require("./routes/habits")(users);
-  const tasksRouter = require("./routes/tasks")(users);
+  // ----- Auth gate for protected routes -----
+  const requireAuth = buildRequireAuth({ auth, users });
 
-  // Mount routers
-  app.use("/streaks", streaksRouter);
-  app.use("/habits",  habitsRouter);
-  app.use("/tasks", tasksRouter);
+  // Routers that depend on userRepo
+  const streaksRouter = require("./routes/streaks")(users);
+  const habitsRouter = require("./routes/habits")(users);
+  const tasksRouter = require("./routes/tasks")(users); // if you have this route module
 
-  // Auth/Account routes
+  // Mount protected domain routes
+  app.use("/streaks", requireAuth, streaksRouter);
+  app.use("/habits", requireAuth, habitsRouter);
+  app.use("/tasks", requireAuth, tasksRouter);
+
+  // Auth / account routes
   app.use(authRoutes({ CONFIG, users, auth, emailVerify, mailer }));
-  if (CONFIG.AUTH_ALLOW_LOCAL) app.use(localRoutes({ users, auth })); // optional
+  if (CONFIG.AUTH_ALLOW_LOCAL) app.use(localRoutes({ users, auth }));
 
   // Public ping
   app.get("/public", (_req, res) => res.send("A public message\n"));
 
-  // requireAuth middleware (uses cookie token -> username -> user record)
-  const requireAuth = buildRequireAuth({ auth, users });
-
-  // Adapt UserRepository to the interface expected by PasswordService
+  // Adapt repo to PasswordService and mount /change-password
   const passwordService = new PasswordService({
     users: {
       getById: async (id) => {
@@ -89,17 +97,16 @@ const tasks = require("./routes/tasks");
       },
     },
   });
-
-  // Mount the account routes to expose POST /change-password
   app.use(buildAccountRoutes({ requireAuth, passwordService }));
 
-  // Errors
+  // ----- Errors -----
   app.use((err, _req, res, _next) => {
     console.error(err);
     if (res.headersSent) return;
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(err.status || 500).json({ error: err.message || "Internal Server Error" });
   });
 
+  // ----- Listen -----
   app.listen(CONFIG.PORT, CONFIG.HOSTNAME, () => {
     console.log(`http://${CONFIG.HOSTNAME}:${CONFIG.PORT}`);
   });
