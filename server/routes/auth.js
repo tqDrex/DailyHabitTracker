@@ -3,6 +3,7 @@ const express = require("express");
 const passport = require("passport");
 const asyncHandler = require("../utils/asyncHandler");
 const { isValidEmail } = require("../utils/validators");
+const calendar = require("./calendar");
 
 module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, mailer }) {
   const router = express.Router();
@@ -12,27 +13,27 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
   router.get(
     "/auth/google",
     passport.authenticate("google", {
-      scope: ["openid", "email", "profile"],
-      prompt: "select_account",
-      session: false,
+      scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/calendar.app.created"],
+      accessType: "offline",
+      prompt: "consent",
       state: true,
+      includeGrantedScopes: true,
     })
   );
-
+  //local user
   router.get(
     "/auth/google/link",
     authorize,
     passport.authenticate("google", {
-      scope: ["openid", "email", "profile"],
+      scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/calendar.app.created"],
       prompt: "select_account",
-      session: false,
       state: true,
     })
   );
 
   router.get(
     "/auth/google/callback",
-    passport.authenticate("google", { failureRedirect: "/auth/failure", session: false }),
+    passport.authenticate("google", { failureRedirect: "/auth/failure"}),
     asyncHandler(async (req, res) => {
       let username = auth.getLoggedInUsername(req);
       if (!username && req.user?.username) {
@@ -113,6 +114,7 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
     authorize,
     asyncHandler(async (req, res) => {
       const username = auth.getLoggedInUsername(req);
+      console.log(`API call to /api/calendar/id for user: ${username}`);
       const { email, code } = req.body || {};
       if (!email || !code) return res.status(400).json({ error: "Missing email or code" });
 
@@ -146,6 +148,48 @@ module.exports = function buildAuthRoutes({ CONFIG, users, auth, emailVerify, ma
       if (existing.rowCount > 0) return res.status(409).json({ error: "Email already linked to another account" });
       await users.setEmail(username, email);
       res.sendStatus(200);
+    })
+  );
+
+  router.get(
+    "/api/calendar/id",
+    authorize,
+    asyncHandler(async (req, res) => {
+      const username = auth.getLoggedInUsername(req);
+      if (!username) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const userResult = await users.getByUsername(username);
+      if (!userResult || userResult.rows.length === 0) {
+        console.error(`User not found for username: ${username}`);
+        return res.status(404).json({error: "User not found"});
+      }
+      const user = userResult.rows[0];
+      if (!user.app_calendar_id) {
+        console.error(`Calendar ID not found for user: ${username}`);
+        return res.status(404).json({error: "Calendar ID not found"});
+      }
+      res.json({calendarId: user.app_calendar_id});
+    })
+  );
+
+  router.get(
+    "/api/auth/token",
+    authorize,
+    asyncHandler(async (req, res) => {
+      const username = auth.getLoggedInUsername(req);
+      if (!username) return res.status(401).json({ error: "Not logged in" });
+      const userResult = await users.getByUsername(username);
+      if (!userResult || userResult.rows.length === 0) {
+        console.error(`User not found for username: ${username}`);
+        return res.status(404).json({error: "User not found"});
+      }
+      const user = userResult.rows[0];
+      if (!user.google_access_token) {
+        console.error(`Access token not found for user: ${username}`);
+        return res.status(404).json({error: "Access token not found"});
+      }
+      res.json({accessToken: user.google_access_token});
     })
   );
 

@@ -6,6 +6,7 @@ import SignupPage  from './pages/SignUpPage';
 import ToDoPage from './pages/ToDoPage';
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 
+import TestPage from './pages/test';
 
 function App() {
   return (
@@ -17,7 +18,7 @@ function App() {
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/todo" element={<ToDoPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
-
+        <Route path="/test" element={<TestPage />} />
       </Routes>
     </BrowserRouter>
   );

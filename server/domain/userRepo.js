@@ -112,7 +112,8 @@ class UserRepository {
           google_access_token TEXT,
           google_refresh_token TEXT,
           google_token_expiry TIMESTAMPTZ,
-          updated_at TIMESTAMPTZ DEFAULT NOW()
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          app_calendar_id  TEXT
         )
       `);
 
@@ -127,6 +128,7 @@ class UserRepository {
       await this.db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_refresh_token TEXT`);
       await this.db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_token_expiry TIMESTAMPTZ`);
       await this.db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+      await this.db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS app_calendar_id TEXT`);
 
       // Backfill + enforce NOT NULL / defaults where safe
       await this.db.query(`UPDATE users SET must_change_password = COALESCE(must_change_password, false)`);
