@@ -76,7 +76,7 @@ const handleSubmit = async (e) => {
       timer: useTimer ? Number(minutes) : null,
       counter: useCounter ? Number(times) : null,
       deadline: deadline || null,
-      repeat,
+      repeat: repeat!="none" ? repeat : null,
     };
 
     try {
