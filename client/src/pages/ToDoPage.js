@@ -6,6 +6,14 @@ const API = "http://localhost:3000";
 export default function ToDoPage() {
   const [user, setUser] = useState(null);
   const [rows, setRows] = useState([]);
+  const [activityName, setActivityName] = useState("");
+  const [useTimer, setUseTimer] = useState(false);
+  const [minutes, setMinutes] = useState("");
+  const [useCounter, setUseCounter] = useState(false);
+  const [times, setTimes] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [repeat, setRepeat] = useState("none");
+  const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // 1) Load session/user
@@ -55,15 +63,47 @@ export default function ToDoPage() {
     return () => ac.abort();
   }, [user?.id]);
 
-  const addRow = () => {
-    const newId = rows.length + 1;
-    const newRow = { id: newId, activity_name: `Item ${newId}` };
-    setRows((r) => [...r, newRow]);
-  };
+const handleSubmit = async (e) => {
+    e.preventDefault();
 
-  const onClick = () => {
-    alert("Plus button clicked!");
-    addRow();
+    if (!useTimer && !useCounter) {
+      alert("Please select at least Timer or Counter.");
+      return;
+    }
+
+    const payload = {
+      activityName,
+      timer: useTimer ? Number(minutes) : null,
+      counter: useCounter ? Number(times) : null,
+      deadline: deadline || null,
+      repeat,
+    };
+
+    try {
+      const res = await fetch(`${API}/tasks/createTask?userId=${user.id}`, {
+        method: "POST",
+        credentials: 'include',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error("Failed to save task");
+
+      const data = await res.json();
+      console.log("Server response:", data);
+
+      // Reset
+      setShowModal(false);
+      setActivityName("");
+      setUseTimer(false);
+      setMinutes("");
+      setUseCounter(false);
+      setTimes("");
+      setDeadline("");
+      setRepeat("none");
+    } catch (e) {
+      console.error(e.message);
+    }
   };
 
   if (loading) return <p>Loading Tasks...</p>;
@@ -96,9 +136,108 @@ export default function ToDoPage() {
             </tbody>
           </table>
         </div>
-        <button className="circle-btn" onClick={onClick} aria-label="Add" style={{ marginTop: 16 }}>
+        <button className="circle-btn" onClick={() => setShowModal(!showModal)} aria-label="Add" style={{ marginTop: 16 }}>
           +
         </button>
+
+        {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-lg p-6 w-96">
+            <h2 className="text-xl font-bold mb-4">Create Task</h2>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              {/* Activity Name */}
+              <input
+                type="text"
+                placeholder="Activity Name"
+                value={activityName}
+                onChange={(e) => setActivityName(e.target.value)}
+                className="border rounded-lg px-3 py-2"
+                required
+              />
+
+              {/* Timer / Counter Checkboxes */}
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={useTimer}
+                    onChange={(e) => setUseTimer(e.target.checked)}
+                  />
+                  Timer
+                </label>
+                {useTimer && (
+                  <input
+                    type="number"
+                    placeholder="Minutes"
+                    value={minutes}
+                    onChange={(e) => setMinutes(e.target.value)}
+                    className="border rounded-lg px-3 py-2"
+                    required
+                  />
+                )}
+
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={useCounter}
+                    onChange={(e) => setUseCounter(e.target.checked)}
+                  />
+                  Counter
+                </label>
+                {useCounter && (
+                  <input
+                    type="number"
+                    placeholder="Times"
+                    value={times}
+                    onChange={(e) => setTimes(e.target.value)}
+                    className="border rounded-lg px-3 py-2"
+                    required
+                  />
+                )}
+              </div>
+
+              {/* Deadline Date */}
+              <input
+                type="date"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
+                className="border rounded-lg px-3 py-2"
+              />
+
+              {/* Repeat Option */}
+              <select
+                value={repeat}
+                onChange={(e) => setRepeat(e.target.value)}
+                className="border rounded-lg px-3 py-2"
+              >
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="annually">Annually</option>
+              </select>
+
+              {/* Buttons */}
+              <div className="flex justify-end gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="bg-gray-400 text-white px-3 py-1 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-blue-500 text-white px-3 py-1 rounded-lg"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

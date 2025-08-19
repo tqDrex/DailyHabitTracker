@@ -15,5 +15,20 @@ module.exports = function tasksRouter(userRepo) {
     }
   });
 
+  router.post("/createTask", async (req, res) => {
+    try {
+      const userId = Number(req.user?.id || req.query.userId);
+      const nameOfActivity = req.body.activityName;
+      const timer = req.body.timer;
+      const counter = req.body.counter;
+      const deadline = req.body.deadline;
+      const repeat = req.body.repeat;
+      await userRepo.createTask({ userId, nameOfActivity, timer, counter, deadline, repeat });
+      res.status(200).json();
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };
