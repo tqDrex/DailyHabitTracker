@@ -45,7 +45,7 @@ export default function ToDoPage() {
     (async () => {
       try {
         setLoading(true);
-        const taskRes = await fetch(`${API}/tasks`, {
+        const taskRes = await fetch(`${API}/tasks?userId=${user.id}`, {
           credentials: "include",
           signal: ac.signal,
         });
