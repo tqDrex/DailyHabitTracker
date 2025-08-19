@@ -18,11 +18,12 @@ module.exports = function tasksRouter(userRepo) {
   router.post("/createTask", async (req, res) => {
     try {
       const userId = Number(req.user?.id || req.query.userId);
-      const nameOfActivity = req.body.activityName;
-      const timer = req.body.timer;
-      const counter = req.body.counter;
-      const deadline = req.body.deadline;
-      const repeat = req.body.repeat;
+      const nameOfActivity = req.body.activityName ? Text(req.body.activityName) : null;
+      const timer = req.body.timer? Number(req.body.timer) : null;
+      const counter = req.body.counter ? Number(req.body.counter) : null;
+      const deadline = req.body.deadline ? new Date(req.body.deadline) : new Date();
+      const repeat = req.body.repeat ? Text(req.body.repeat) : null;
+      console.log(`userID: ${userId}\nnameOfActivity: ${req.body.activityName}\ntimer: ${timer}\ncounter: ${counter}\ndeadline: ${deadline}\nrepeat: ${repeat}`);
       await userRepo.createTask({ userId, nameOfActivity, timer, counter, deadline, repeat });
       res.status(200).json();
     } catch (e) {
