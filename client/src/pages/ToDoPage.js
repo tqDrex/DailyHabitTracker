@@ -1,7 +1,19 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import "../style/ToDoPage.css";
 
 const API = "http://localhost:3000";
+
+// normalize API rows (snake_case or camelCase)
+function normalizeTask(r) {
+  return {
+    id: r.id,
+    activityName: r.activityName ?? r.activity_name ?? "",
+    timer: r.timer ?? null,
+    counter: r.counter ?? null,
+    deadlineDate: r.deadlineDate ?? r.deadline_date ?? null,
+    repeat: r.repeat ?? null,
+  };
+}
 
 export default function ToDoPage() {
   const [user, setUser] = useState(null);
@@ -15,11 +27,11 @@ export default function ToDoPage() {
   const [repeat, setRepeat] = useState("none");
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
 
-  // 1) Load session/user
+  // Load session/user
   useEffect(() => {
     const ac = new AbortController();
-
     (async () => {
       try {
         const res = await fetch(`${API}/api/me`, {
@@ -33,39 +45,45 @@ export default function ToDoPage() {
         if (!ac.signal.aborted) window.location.href = "/";
       }
     })();
-
     return () => ac.abort();
   }, []);
 
-  // 2) Load tasks after we have a user
-  useEffect(() => {
-    if (!user?.id) return;
-    const ac = new AbortController();
+  // Fetch tasks
+  const fetchTasks = async (signal) => {
+    setErr(null);
+    const res = await fetch(`${API}/tasks`, {
+      credentials: "include",
+      signal,
+    });
+    if (!res.ok) throw new Error("Task load failed");
+    const body = await res.json();
+    const list = Array.isArray(body) ? body : body.rows || [];
+    return list.map(normalizeTask);
+  };
 
+  useEffect(() => {
+    if (!user) return;
+    const ac = new AbortController();
     (async () => {
       try {
         setLoading(true);
-        const taskRes = await fetch(`${API}/tasks?userId=${user.id}`, {
-          credentials: "include",
-          signal: ac.signal,
-        });
-        if (!taskRes.ok) throw new Error("Task load failed");
-        // /tasks returns an array (not {rows})
-        const taskRows = await taskRes.json();
-        if (!ac.signal.aborted) setRows(taskRows || []);
-      } catch {
-        if (!ac.signal.aborted) setRows([]);
+        const tasks = await fetchTasks(ac.signal);
+        if (!ac.signal.aborted) setRows(tasks);
+      } catch (e) {
+        if (!ac.signal.aborted) {
+          setRows([]);
+          setErr(e.message || "Failed to load tasks");
+        }
       } finally {
         if (!ac.signal.aborted) setLoading(false);
       }
     })();
-
     return () => ac.abort();
-  }, [user?.id]);
+  }, [user]);
 
-const handleSubmit = async (e) => {
+  // Create new task
+  const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!useTimer && !useCounter) {
       alert("Please select at least Timer or Counter.");
       return;
@@ -76,23 +94,22 @@ const handleSubmit = async (e) => {
       timer: useTimer ? Number(minutes) : null,
       counter: useCounter ? Number(times) : null,
       deadline: deadline || null,
-      repeat: repeat!=="none" ? repeat : null,
+      repeat: repeat !== "none" ? repeat : null,
     };
 
     try {
-      const res = await fetch(`${API}/tasks/createTask?userId=${user.id}`, {
+      setErr(null);
+      const res = await fetch(`${API}/tasks/createTask`, {
         method: "POST",
-        credentials: 'include',
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        throw new Error(msg || "Failed to save task");
+      }
 
-      if (!res.ok) throw new Error("Failed to save task");
-
-      const data = await res.json();
-      console.log("Server response:", data);
-
-      // Reset
       setShowModal(false);
       setActivityName("");
       setUseTimer(false);
@@ -101,143 +118,178 @@ const handleSubmit = async (e) => {
       setTimes("");
       setDeadline("");
       setRepeat("none");
+
+      const tasks = await fetchTasks();
+      setRows(tasks);
     } catch (e) {
-      console.error(e.message);
+      console.error(e);
+      setErr(e.message || "Failed to save task");
     }
   };
 
-  if (loading) return <p>Loading Tasks...</p>;
+  const empty = useMemo(() => !loading && rows.length === 0, [loading, rows]);
+
+  if (loading) return <p>Loading tasks…</p>;
 
   return (
-    <div>
+    <div className="todo-container">
       <h1>To-Do Page</h1>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ borderStyle: "ridge", borderWidth: 10 }}>
-          <table border="1" cellPadding="10" style={{ borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th>Activity Name</th>
-                <th>Timer</th>
-                <th>Counter</th>
-                <th>Deadline Date</th>
-                <th>Repeat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.activity_name}</td>
-                  <td>{row.timer}</td>
-                  <td>{row.counter}</td>
-                  <td>{row.deadline_date}</td>
-                  <td>{row.repeat}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="nav-buttons">
+        <button
+          className="btn secondary nav-btn"
+          onClick={() => window.location.href = "/dashboard"} // change route as needed
+        >
+          ⬅ Back to Dashboard
+        </button>
+      </div>
+
+      {err && (
+        <div className="error-banner" role="alert">
+          {err}
         </div>
-        <button className="circle-btn" onClick={() => setShowModal(!showModal)} aria-label="Add" style={{ marginTop: 16 }}>
+      )}
+
+      <div className="flex-center">
+        <table className="todo-table">
+          <thead>
+            <tr>
+              <th>Activity Name</th>
+              <th>Timer (min)</th>
+              <th>Counter</th>
+              <th>Deadline Date</th>
+              <th>Repeat</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td data-label="Activity Name">{row.activityName}</td>
+                <td data-label="Timer (min)">{row.timer ?? ""}</td>
+                <td data-label="Counter">{row.counter ?? ""}</td>
+                <td data-label="Deadline Date">
+                  {row.deadlineDate
+                    ? new Date(row.deadlineDate).toLocaleDateString()
+                    : ""}
+                </td>
+                <td data-label="Repeat">{row.repeat ?? ""}</td>
+              </tr>
+            ))}
+            {empty && (
+              <tr>
+                <td colSpan="5" style={{ textAlign: "center", color: "#666" }}>
+                  No tasks yet. Click the + to add one.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+
+        <button
+          className="circle-btn"
+          onClick={() => setShowModal(true)}
+          aria-label="Add"
+        >
           +
         </button>
 
         {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-lg p-6 w-96">
-            <h2 className="text-xl font-bold mb-4">Create Task</h2>
+          <div className="modal-backdrop" onClick={() => setShowModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h2 className="modal-title">Create Task</h2>
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              {/* Activity Name */}
-              <input
-                type="text"
-                placeholder="Activity Name"
-                value={activityName}
-                onChange={(e) => setActivityName(e.target.value)}
-                className="border rounded-lg px-3 py-2"
-                required
-              />
+              <form onSubmit={handleSubmit} className="modal-form">
+                <input
+                  type="text"
+                  placeholder="Activity Name"
+                  value={activityName}
+                  onChange={(e) => setActivityName(e.target.value)}
+                  className="input"
+                  required
+                />
 
-              {/* Timer / Counter Checkboxes */}
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center gap-2">
+                {/* Timer */}
+                <div className={`row ${useTimer ? "on" : ""}`}>
                   <input
                     type="checkbox"
                     checked={useTimer}
                     onChange={(e) => setUseTimer(e.target.checked)}
+                    id="timerChk"
                   />
-                  Timer
-                </label>
+                  <label htmlFor="timerChk">Timer</label>
+                </div>
                 {useTimer && (
-                  <input
-                    type="number"
-                    placeholder="Minutes"
-                    value={minutes}
-                    onChange={(e) => setMinutes(e.target.value)}
-                    className="border rounded-lg px-3 py-2"
-                    required
-                  />
+                  <div className="inline-extra">
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Minutes"
+                      value={minutes}
+                      onChange={(e) => setMinutes(e.target.value)}
+                      className="input"
+                      required
+                    />
+                  </div>
                 )}
 
-                <label className="flex items-center gap-2">
+                {/* Counter */}
+                <div className={`row ${useCounter ? "on" : ""}`}>
                   <input
                     type="checkbox"
                     checked={useCounter}
                     onChange={(e) => setUseCounter(e.target.checked)}
+                    id="counterChk"
                   />
-                  Counter
-                </label>
+                  <label htmlFor="counterChk">Counter</label>
+                </div>
                 {useCounter && (
-                  <input
-                    type="number"
-                    placeholder="Times"
-                    value={times}
-                    onChange={(e) => setTimes(e.target.value)}
-                    className="border rounded-lg px-3 py-2"
-                    required
-                  />
+                  <div className="inline-extra">
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Times"
+                      value={times}
+                      onChange={(e) => setTimes(e.target.value)}
+                      className="input"
+                      required
+                    />
+                  </div>
                 )}
-              </div>
 
-              {/* Deadline Date */}
-              <input
-                type="date"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className="border rounded-lg px-3 py-2"
-              />
+                <input
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  className="input"
+                />
 
-              {/* Repeat Option */}
-              <select
-                value={repeat}
-                onChange={(e) => setRepeat(e.target.value)}
-                className="border rounded-lg px-3 py-2"
-              >
-                <option value="none">None</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="annually">Annually</option>
-              </select>
-
-              {/* Buttons */}
-              <div className="flex justify-end gap-2 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="bg-gray-400 text-white px-3 py-1 rounded-lg"
+                <select
+                  value={repeat}
+                  onChange={(e) => setRepeat(e.target.value)}
+                  className="input"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-blue-500 text-white px-3 py-1 rounded-lg"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
+                  <option value="none">None</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+
+                <div className="row end">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="btn secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn primary">
+                    Save
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );
