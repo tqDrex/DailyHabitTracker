@@ -19,7 +19,7 @@ const AuthService = require("./services/authService");
 const EmailVerificationService = require("./services/emailVerificationService");
 const PasswordService = require("./services/passwordService");
 
-// Routes (DI factories)
+// Route factories (DI)
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
@@ -50,7 +50,7 @@ const buildAccountRoutes = require("./routes/account");
   app.use(express.json());
   app.use(cookieParser());
 
-  // Optional session (Passport uses this; your app auth uses a custom cookie)
+  // Session (Passport uses this; your app auth uses a custom cookie)
   app.use(
     session({
       secret: CONFIG.SESSION_SECRET,
@@ -68,15 +68,17 @@ const buildAccountRoutes = require("./routes/account");
   // ----- Auth gate for protected routes -----
   const requireAuth = buildRequireAuth({ auth, users });
 
-  // Routers that depend on userRepo
+  // Routers that depend on userRepo (create AFTER users)
   const streaksRouter = require("./routes/streaks")(users);
-  const habitsRouter = require("./routes/habits")(users);
-  const tasksRouter = require("./routes/tasks")(users); // if you have this route module
+  const habitsRouter  = require("./routes/habits")(users);
+  const tasksRouter   = require("./routes/tasks")(users); // remove if you don't have this file
+  const statsRouter   = require("./routes/stats")(users); // <-- create here (users is ready)
 
-  // Mount protected domain routes
+  // Mount protected domain routes (mount AFTER requireAuth exists)
   app.use("/streaks", requireAuth, streaksRouter);
-  app.use("/habits", requireAuth, habitsRouter);
-  app.use("/tasks", requireAuth, tasksRouter);
+  app.use("/habits",  requireAuth, habitsRouter);
+  app.use("/tasks",   requireAuth, tasksRouter);
+  app.use("/stats",   requireAuth, statsRouter); // <-- fixes /stats/completion/daily 404
 
   // Auth / account routes
   app.use(authRoutes({ CONFIG, users, auth, emailVerify, mailer }));

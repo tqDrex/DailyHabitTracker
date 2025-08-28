@@ -5,9 +5,80 @@ module.exports = function habitsRouter(userRepo) {
   const r = express.Router();
 
   // ------------------------------------------------------------------
+  // Create a new habit (creates a task row) and pre-generate occurrences
+  // POST /api/habits
+  // body: { activityName, timer?, counter?, deadlineDate?, repeat? }
+  // repeat ∈ ('daily','weekly','monthly','yearly') or null
+  // ------------------------------------------------------------------
+  r.post("/", async (req, res) => {
+    try {
+      const userId = Number(req.user?.id || req.body.userId);
+      const { activityName, timer, counter, deadlineDate, repeat } = req.body;
+
+      if (!userId || !activityName) {
+        return res.status(400).json({ error: "userId and activityName required" });
+      }
+
+      const { rows } = await userRepo.createTask({
+        userId,
+        activityName,
+        timer: timer ?? null,
+        counter: counter ?? null,
+        deadlineDate: deadlineDate ?? null,
+        repeat: repeat ?? null,
+      });
+
+      const task = rows[0];
+
+      // Anchor = provided start date or today
+      const anchor = deadlineDate ? new Date(deadlineDate) : new Date();
+
+      // Generate occurrences so it shows up immediately in /habits/day
+      if (typeof userRepo.generateOccurrencesForTask === "function") {
+        await userRepo.generateOccurrencesForTask({
+          userId,
+          taskId: task.id,
+          repeat: repeat ?? null,
+          anchorDate: anchor,
+          horizonDays: 90,
+        });
+      } else {
+        // Fallback: at least ensure the anchor day exists
+        await userRepo.upsertLogForDate({ userId, taskId: task.id, date: anchor });
+      }
+
+      res.json({ task });
+    } catch (e) {
+      console.error("POST /habits error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // List all habits for a specific day with completion status
+  // GET /api/habits/day?date=YYYY-MM-DD
+  // Returns: [{ task_id, activity_name, completed, seconds_logged, completed_at }]
+  // ------------------------------------------------------------------
+  r.get("/day", async (req, res) => {
+    try {
+      const userId = Number(req.user?.id || req.query.userId);
+      const dateStr = req.query.date;
+      if (!userId || !dateStr) {
+        return res.status(400).json({ error: "userId and date are required" });
+      }
+      const d = new Date(dateStr);
+      const rows = await userRepo.listHabitsForDay({ userId, date: d });
+      res.json({ rows });
+    } catch (e) {
+      console.error("GET /habits/day error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ------------------------------------------------------------------
   // (Legacy) Mark complete for a given date (defaults to today)
   // POST /api/habits/:taskId/complete  { date?, secondsLogged? }
-  // Kept for backward compatibility; always sets completed = true
+  // Always sets completed = true
   // ------------------------------------------------------------------
   r.post("/:taskId/complete", async (req, res) => {
     try {
@@ -26,7 +97,8 @@ module.exports = function habitsRouter(userRepo) {
 
   // ------------------------------------------------------------------
   // Idempotent completion setter (preferred)
-  // PUT /api/habits/:taskId/complete  { date: 'YYYY-MM-DD', completed: true|false, secondsLogged? }
+  // PUT /api/habits/:taskId/complete
+  // body: { date:'YYYY-MM-DD', completed:true|false, secondsLogged? }
   // ------------------------------------------------------------------
   r.put("/:taskId/complete", async (req, res) => {
     try {
@@ -37,7 +109,7 @@ module.exports = function habitsRouter(userRepo) {
       if (!userId || !taskId || !date || typeof completed !== "boolean") {
         return res.status(400).json({ error: "userId, taskId, date, completed are required" });
       }
-      const d = new Date(date); // accepts 'YYYY-MM-DD'
+      const d = new Date(date);
       const row = await userRepo.setCompletion({
         userId,
         taskId,
@@ -65,32 +137,10 @@ module.exports = function habitsRouter(userRepo) {
         return res.status(400).json({ error: "userId, taskId, date are required" });
       }
       const d = new Date(dateStr);
-      // Re-use setCompletion with completed=false to “uncomplete”
       await userRepo.setCompletion({ userId, taskId, date: d, completed: false, secondsLogged: null });
       res.json({ ok: true });
     } catch (e) {
       console.error("DELETE /habits/:taskId/complete error:", e);
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  // ------------------------------------------------------------------
-  // List all habits for a day with their completion
-  // GET /api/habits/day?date=YYYY-MM-DD
-  // Returns: [{ task_id, activity_name, completed, seconds_logged, completed_at }]
-  // ------------------------------------------------------------------
-  r.get("/day", async (req, res) => {
-    try {
-      const userId = Number(req.user?.id || req.query.userId);
-      const dateStr = req.query.date;
-      if (!userId || !dateStr) {
-        return res.status(400).json({ error: "userId and date are required" });
-      }
-      const d = new Date(dateStr);
-      const rows = await userRepo.listHabitsForDay({ userId, date: d });
-      res.json({ rows });
-    } catch (e) {
-      console.error("GET /habits/day error:", e);
       res.status(500).json({ error: e.message });
     }
   });
@@ -116,7 +166,7 @@ module.exports = function habitsRouter(userRepo) {
   });
 
   // ------------------------------------------------------------------
-  // (Optional) generate occurrences ahead (run at login or nightly)
+  // Generate occurrences ahead (run at login or nightly)
   // POST /api/habits/generate  { horizonDays?: number }
   // ------------------------------------------------------------------
   r.post("/generate", async (req, res) => {

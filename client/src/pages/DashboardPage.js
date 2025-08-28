@@ -224,7 +224,6 @@ export default function DashboardPage() {
         <nav className="dashboard__nav">
           <NavButton to="/todo">To-Do</NavButton>
           <NavButton to="/calendar">Calendar</NavButton>
-          <NavButton to="/test">Calendar</NavButton>
 
         </nav>
 
