@@ -7,7 +7,6 @@ import "../style/ToDoPage.css";
 const API = "http://localhost:3000";
 
 /* ---------- helpers ---------- */
-
 function normalizeTask(r) {
   return {
     id: r.id,
@@ -16,9 +15,9 @@ function normalizeTask(r) {
     counter: r.counter ?? null,
     deadlineDate: r.deadlineDate ?? r.deadline_date ?? null,
     repeat: r.repeat ?? null,
+    createdAt: r.created_at ?? r.createdAt ?? null, // used for non-repeating visibility
   };
 }
-
 function isoDateOnly(d) {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
     .toISOString()
@@ -28,7 +27,12 @@ function todayLocalAtMidnight() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
+function safeTz(){
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+  catch { return "UTC"; }
+}
 
+/* ---------- tiny UI atoms ---------- */
 function NavButton({ to, children }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,9 +46,6 @@ function NavButton({ to, children }) {
     </button>
   );
 }
-
-/* ---------- tiny UI atoms ---------- */
-
 function ProgressBar({ value = 0, max = 100 }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
@@ -53,13 +54,134 @@ function ProgressBar({ value = 0, max = 100 }) {
     </div>
   );
 }
-
 function ChipButton({ children, onClick, disabled }) {
   return (
     <button className="chip-btn" onClick={onClick} disabled={disabled} type="button">
       {children}
     </button>
   );
+}
+
+/* ---------- period math ---------- */
+function startOfDayLocal(d) { const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function startOfISOWeekUTC(d){
+  const u=new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dow=(u.getUTCDay()+6)%7; u.setUTCDate(u.getUTCDate()-dow); return u;
+}
+function monthStartUTC(d){ return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)); }
+function addMonthsUTC(d,n){ const x=monthStartUTC(d); x.setUTCMonth(x.getUTCMonth()+n); return x; }
+function yearStartUTC(d){ return new Date(Date.UTC(d.getUTCFullYear(),0,1)); }
+function addYearsUTC(d,n){ const x=yearStartUTC(d); x.setUTCFullYear(x.getUTCFullYear()+n); return x; }
+
+function computePeriod(window, offset){
+  const now=new Date();
+  if(window==="daily"){
+    const start=startOfDayLocal(addDays(now, offset));
+    const end=addDays(start,1);
+    return { start, end, label: start.toDateString() };
+  }
+  if(window==="weekly"){
+    const base=startOfISOWeekUTC(new Date());
+    base.setUTCDate(base.getUTCDate()+offset*7);
+    const start=new Date(base), end=addDays(start,7);
+    const endLabel=addDays(start,6);
+    return { start, end, label: `Week of ${start.toDateString()} – ${endLabel.toDateString()}` };
+  }
+  if(window==="monthly"){
+    const first=addMonthsUTC(new Date(), offset);
+    const next=addMonthsUTC(first,1);
+    return { start:first, end:next, label: first.toLocaleDateString(undefined,{month:"long",year:"numeric"}) };
+  }
+  const y0=addYearsUTC(new Date(), offset), y1=addYearsUTC(y0,1);
+  return { start:y0, end:y1, label: String(y0.getUTCFullYear()) };
+}
+
+/* ---------- rules + repeat logic ---------- */
+const ONE_DAY = 24*3600*1000;
+function parseMaybeDate(x){
+  if (!x) return null;
+  const d = new Date(x);
+  return isNaN(d) ? null : d;
+}
+function repeatMatchesMode(rep, mode){
+  const r=(rep||"").toLowerCase();
+  if (mode==="daily")   return !r || r==="daily"; // include non-repeating + daily
+  if (mode==="weekly")  return r==="weekly";
+  if (mode==="monthly") return r==="monthly";
+  if (mode==="yearly")  return r==="yearly";
+  return false;
+}
+
+/** Clamp [start,end) by: not before TODAY, not after DEADLINE (+1d).
+ *  For NON-REPEATING, also clamp start by CREATED-AT if present.
+ */
+function clampByRules(period, task){
+  const today = startOfDayLocal(new Date());
+  const deadline = task.deadlineDate ? startOfDayLocal(new Date(task.deadlineDate)) : null;
+  const created = task.createdAt ? startOfDayLocal(new Date(task.createdAt)) : null;
+
+  // Lower bound = today; for non-repeating tasks, also respect createdAt if available
+  const isNonRepeating = !task.repeat;
+  const lowerBound = isNonRepeating && created ? new Date(Math.max(today.getTime(), created.getTime()))
+                                               : today;
+
+  const start = new Date(Math.max(period.start.getTime(), lowerBound.getTime()));
+
+  let end = new Date(period.end);
+  if (deadline) {
+    const deadlineEnd = new Date(deadline.getTime() + ONE_DAY);
+    end = new Date(Math.min(end.getTime(), deadlineEnd.getTime()));
+  }
+
+  if (end <= start) return null;
+  return { start, end };
+}
+
+/** strict: visible only if repeat type matches AND there exists an occurrence in clamped window */
+function taskVisibleInPeriod(task, period, mode){
+  if (!repeatMatchesMode(task.repeat, mode)) return false;
+
+  const p = clampByRules(period, task);
+  if (!p) return false;
+
+  const rep = (task.repeat || "").toLowerCase();
+
+  // NON-REPEATING:
+  // Show in DAILY view on *every day* from max(today, createdAt) up to deadline (if any).
+  if (!rep) {
+    if (mode !== "daily") return false;
+    return p.end > p.start; // any time left in the clamped day ⇒ visible
+  }
+
+  // REPEATING:
+  if (rep === "daily") {
+    return p.end > p.start;
+  }
+  if (rep === "weekly") {
+    const anchorDow = startOfDayLocal(new Date()).getDay();
+    for (let t = new Date(p.start); t < p.end; t = addDays(t,1)) {
+      if (t.getDay() === anchorDow) return true;
+    }
+    return false;
+  }
+  if (rep === "monthly") {
+    const ref = parseMaybeDate(task.deadlineDate) || new Date();
+    const dom = startOfDayLocal(ref).getDate();
+    for (let t = new Date(p.start); t < p.end; t = addDays(t,1)) {
+      if (t.getDate() === dom) return true;
+    }
+    return false;
+  }
+  if (rep === "yearly") {
+    const ref = parseMaybeDate(task.deadlineDate) || new Date();
+    const mm = ref.getMonth(), dd = ref.getDate();
+    for (let t = new Date(p.start); t < p.end; t = addDays(t,1)) {
+      if (t.getMonth() === mm && t.getDate() === dd) return true;
+    }
+    return false;
+  }
+  return false;
 }
 
 /* ===================================================================== */
@@ -72,7 +194,7 @@ export default function ToDoPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  // create modal state
+  // create modal
   const [showModal, setShowModal] = useState(false);
   const [activityName, setActivityName] = useState("");
   const [useTimer, setUseTimer] = useState(false);
@@ -82,15 +204,20 @@ export default function ToDoPage() {
   const [deadline, setDeadline] = useState("");
   const [repeat, setRepeat] = useState("none");
 
-  // calendar bootstrap
+  // google (optional)
   const [isGapiLoaded, setIsGapiLoaded] = useState(false);
   const [hasGoogleToken, setHasGoogleToken] = useState(false);
   const [calendarId, setCalendarID] = useState(null);
 
-  // per-task progress cache { [taskId]: { minutes, count } }
+  // per-task progress cache
   const [progressByTask, setProgressByTask] = useState({});
 
-  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  // period controls
+  const [mode, setMode] = useState("daily"); // daily|weekly|monthly|yearly
+  const [offset, setOffset] = useState(0);
+  const period = useMemo(() => computePeriod(mode, offset), [mode, offset]);
+
+  const userTz = safeTz();
 
   /* ---------- auth ---------- */
   useEffect(() => {
@@ -131,7 +258,6 @@ export default function ToDoPage() {
         if (ac.signal.aborted) return;
         setRows(tasks);
 
-        // Best-effort: hydrate progress totals per task
         const entries = await Promise.all(
           tasks.map(async (t) => {
             try {
@@ -147,9 +273,7 @@ export default function ToDoPage() {
             }
           })
         );
-        if (!ac.signal.aborted) {
-          setProgressByTask(Object.fromEntries(entries));
-        }
+        if (!ac.signal.aborted) setProgressByTask(Object.fromEntries(entries));
       } catch (e) {
         if (!ac.signal.aborted) {
           setRows([]);
@@ -168,9 +292,7 @@ export default function ToDoPage() {
     let cancelled = false;
     (async () => {
       try {
-        const tokenRes = await fetch(`${API}/api/auth/token`, {
-          credentials: "include",
-        });
+        const tokenRes = await fetch(`${API}/api/auth/token`, { credentials: "include" });
         if (!tokenRes.ok) return setHasGoogleToken(false);
         const tokenData = await tokenRes.json();
         if (!tokenData?.accessToken) return setHasGoogleToken(false);
@@ -183,9 +305,7 @@ export default function ToDoPage() {
         gapi.auth.setToken({ access_token: tokenData.accessToken });
         setHasGoogleToken(true);
 
-        const calRes = await fetch(`${API}/api/calendar/id`, {
-          credentials: "include",
-        });
+        const calRes = await fetch(`${API}/api/calendar/id`, { credentials: "include" });
         if (calRes.ok) {
           const data = await calRes.json();
           if (!cancelled) setCalendarID(data.calendarId || null);
@@ -284,12 +404,9 @@ export default function ToDoPage() {
 
       const tasks = await fetchTasks();
       setRows(tasks);
-      // init progress 0 for any new tasks to avoid undefined
       setProgressByTask((prev) => {
         const next = { ...prev };
-        tasks.forEach((t) => {
-          if (!next[t.id]) next[t.id] = { minutes: 0, count: 0 };
-        });
+        tasks.forEach((t) => { if (!next[t.id]) next[t.id] = { minutes: 0, count: 0 }; });
         return next;
       });
     } catch (e) {
@@ -307,10 +424,10 @@ export default function ToDoPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type,                // 'minutes' | 'count'
-          value,               // positive integer
+          type,
+          value,
           at: new Date().toISOString(),
-          tz: userTz,          // ✅ include tz so streaks update on server
+          tz: userTz,
         }),
       });
       if (!res.ok) {
@@ -318,21 +435,14 @@ export default function ToDoPage() {
         throw new Error(body?.error || "Failed to add progress");
       }
 
-      // Refresh the server-authoritative totals (and reflect any streak effects)
-      const sumRes = await fetch(`${API}/tasks/${task.id}/progress/summary`, {
-        credentials: "include",
-      });
+      const sumRes = await fetch(`${API}/tasks/${task.id}/progress/summary`, { credentials: "include" });
       if (sumRes.ok) {
         const totals = await sumRes.json();
         setProgressByTask((prev) => ({
           ...prev,
-          [task.id]: {
-            minutes: Number(totals.minutes || 0),
-            count: Number(totals.count || 0),
-          },
+          [task.id]: { minutes: Number(totals.minutes || 0), count: Number(totals.count || 0) },
         }));
       } else {
-        // fallback optimistic update if summary fetch failed
         setProgressByTask((prev) => {
           const cur = prev[task.id] || { minutes: 0, count: 0 };
           return {
@@ -345,7 +455,6 @@ export default function ToDoPage() {
         });
       }
 
-      // Let other tabs (e.g., Dashboard) know streaks might have changed
       window.dispatchEvent(new CustomEvent("streaks:changed", { detail: { taskId: task.id } }));
     } catch (e) {
       console.error(e);
@@ -353,7 +462,12 @@ export default function ToDoPage() {
     }
   }
 
-  const empty = useMemo(() => !loading && rows.length === 0, [loading, rows]);
+  /* ---------- filter rows to current period with strict repeat + rules ---------- */
+  const visibleRows = useMemo(() => {
+    return (rows || []).filter((t) => taskVisibleInPeriod(t, period, mode));
+  }, [rows, period, mode]);
+
+  const empty = useMemo(() => !loading && visibleRows.length === 0, [loading, visibleRows]);
 
   if (loading) return <p>Loading tasks…</p>;
 
@@ -361,7 +475,6 @@ export default function ToDoPage() {
     <div className="dashboard">
       <div className="dashboard__topbar">
         <div className="dashboard__brand">Daily Habit Tracker</div>
-
         <nav className="dashboard__nav">
           <NavButton to="/dashboard">Dashboard</NavButton>
           <NavButton to="/todo">To-Do</NavButton>
@@ -370,13 +483,28 @@ export default function ToDoPage() {
       </div>
 
       <div className="todo-container">
-        <h1>To-Do Page</h1>
-
-        {err && (
-          <div className="error-banner" role="alert">
-            {err}
+        <div className="card">
+          <div className="insights__header">
+            <div className="insights__title">
+              <h1 className="h1-tight">To-Do</h1>
+              <div className="muted">{period.label}</div>
+            </div>
+            <div className="insights__controls">
+              <div className="insights__switch">
+                <button className={`seg ${mode==="daily"?"seg--on":""}`}   onClick={()=>{setMode("daily"); setOffset(0);}}>Day</button>
+                <button className={`seg ${mode==="weekly"?"seg--on":""}`}  onClick={()=>{setMode("weekly"); setOffset(0);}}>Week</button>
+                <button className={`seg ${mode==="monthly"?"seg--on":""}`} onClick={()=>{setMode("monthly"); setOffset(0);}}>Month</button>
+                <button className={`seg ${mode==="yearly"?"seg--on":""}`}  onClick={()=>{setMode("yearly"); setOffset(0);}}>Year</button>
+              </div>
+              <div className="insights__arrows">
+                <button className="arrow" onClick={()=>setOffset(o=>o-1)} aria-label="Previous">←</button>
+                <button className="arrow" onClick={()=>setOffset(o=>o+1)} aria-label="Next">→</button>
+              </div>
+            </div>
           </div>
-        )}
+        </div>
+
+        {err && <div className="error-banner" role="alert">{err}</div>}
 
         <div className="flex-center">
           <table className="todo-table">
@@ -391,7 +519,7 @@ export default function ToDoPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const prog = progressByTask[row.id] || { minutes: 0, count: 0 };
                 const timerGoal = row.timer ?? null;
                 const counterGoal = row.counter ?? null;
@@ -400,42 +528,29 @@ export default function ToDoPage() {
                   <tr key={row.id}>
                     <td data-label="Activity">{row.activityName}</td>
 
-                    {/* Timer cell with progress */}
                     <td data-label="Timer">
                       {timerGoal ? (
                         <div>
-                          <div className="muted small">
-                            {prog.minutes}/{timerGoal} min
-                          </div>
+                          <div className="muted small">{prog.minutes}/{timerGoal} min</div>
                           <ProgressBar value={prog.minutes} max={timerGoal} />
                         </div>
-                      ) : (
-                        "—"
-                      )}
+                      ) : ("—")}
                     </td>
 
-                    {/* Counter cell with progress */}
                     <td data-label="Counter">
                       {counterGoal ? (
                         <div>
-                          <div className="muted small">
-                            {prog.count}/{counterGoal}
-                          </div>
+                          <div className="muted small">{prog.count}/{counterGoal}</div>
                           <ProgressBar value={prog.count} max={counterGoal} />
                         </div>
-                      ) : (
-                        "—"
-                      )}
+                      ) : ("—")}
                     </td>
 
                     <td data-label="Deadline">
-                      {row.deadlineDate
-                        ? new Date(row.deadlineDate).toLocaleDateString()
-                        : "—"}
+                      {row.deadlineDate ? new Date(row.deadlineDate).toLocaleDateString() : "—"}
                     </td>
                     <td data-label="Repeat">{row.repeat ?? "—"}</td>
 
-                    {/* Quick-add controls */}
                     <td className="progress-actions">
                       {timerGoal && (
                         <div className="stack">
@@ -490,28 +605,20 @@ export default function ToDoPage() {
               {empty && (
                 <tr>
                   <td colSpan="6" style={{ textAlign: "center", color: "#666" }}>
-                    No tasks yet. Click the + to add one.
+                    No tasks in this period. Use the arrows to browse dates.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
 
-          <button
-            className="circle-btn"
-            onClick={() => setShowModal(true)}
-            aria-label="Add"
-          >
-            +
-          </button>
+          <button className="circle-btn" onClick={() => setShowModal(true)} aria-label="Add">+</button>
 
           {showModal && (
             <div className="modal-backdrop" onClick={() => setShowModal(false)}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <h2 className="modal-title">Create Task</h2>
-
                 <form onSubmit={handleSubmit} className="modal-form">
-                  {/* Activity */}
                   <label className="field-label" htmlFor="task-name">Activity Name</label>
                   <input
                     id="task-name"
@@ -525,14 +632,8 @@ export default function ToDoPage() {
 
                   <hr className="divider" />
 
-                  {/* Timer */}
                   <div className={`row ${useTimer ? "on" : ""}`}>
-                    <input
-                      type="checkbox"
-                      checked={useTimer}
-                      onChange={(e) => setUseTimer(e.target.checked)}
-                      id="timerChk"
-                    />
+                    <input type="checkbox" checked={useTimer} onChange={(e) => setUseTimer(e.target.checked)} id="timerChk" />
                     <label htmlFor="timerChk">Timer goal (minutes)</label>
                   </div>
                   {useTimer && (
@@ -551,14 +652,8 @@ export default function ToDoPage() {
                     </div>
                   )}
 
-                  {/* Counter */}
                   <div className={`row ${useCounter ? "on" : ""}`}>
-                    <input
-                      type="checkbox"
-                      checked={useCounter}
-                      onChange={(e) => setUseCounter(e.target.checked)}
-                      id="counterChk"
-                    />
+                    <input type="checkbox" checked={useCounter} onChange={(e) => setUseCounter(e.target.checked)} id="counterChk" />
                     <label htmlFor="counterChk">Counter goal (times)</label>
                   </div>
                   {useCounter && (
@@ -579,7 +674,6 @@ export default function ToDoPage() {
 
                   <hr className="divider" />
 
-                  {/* Deadline */}
                   <label className="field-label" htmlFor="deadline">Deadline</label>
                   <input
                     id="deadline"
@@ -589,7 +683,6 @@ export default function ToDoPage() {
                     className="input"
                   />
 
-                  {/* Repeat */}
                   <label className="field-label" htmlFor="repeat">Repeat</label>
                   <select
                     id="repeat"
@@ -605,16 +698,8 @@ export default function ToDoPage() {
                   </select>
 
                   <div className="row end">
-                    <button
-                      type="button"
-                      onClick={() => setShowModal(false)}
-                      className="btn secondary"
-                    >
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn primary">
-                      Save
-                    </button>
+                    <button type="button" onClick={() => setShowModal(false)} className="btn secondary">Cancel</button>
+                    <button type="submit" className="btn primary">Save</button>
                   </div>
                 </form>
               </div>
