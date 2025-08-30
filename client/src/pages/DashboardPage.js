@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../style/Dashboard.css";
+import InsightsPanel from "../Components/InsightsPanel"; // ← donuts panel
 
 /* ---------- Helpers ---------- */
 function getUserIanaTz() {
@@ -186,16 +187,16 @@ export default function DashboardPage() {
     return () => ac.abort();
   }, [user?.id, tz, refetchStreaks, refetchCompletion]);
 
-  // Listen for Calendar's “streaks:changed” and refetch
+  // Listen for “streaks:changed” and refetch
   useEffect(() => {
     if (!user?.id) return;
     const onChanged = async () => {
       try {
         await refetchStreaks();
         await refetchCompletion();
-      } catch {
-        /* ignore */
-      }
+        // Also refresh donuts if InsightsPanel is listening (optional custom event)
+        window.dispatchEvent(new CustomEvent("progress:added"));
+      } catch {}
     };
     window.addEventListener("streaks:changed", onChanged);
     return () => window.removeEventListener("streaks:changed", onChanged);
@@ -257,10 +258,9 @@ export default function DashboardPage() {
     [dailyCompletion]
   );
 
-  // Display lists
   const displayBest = useMemo(() => {
     return (bestStreaks || [])
-      .filter((r) => Number(r.best_streak_days || 0) > 0) // exclude 0d from Best
+      .filter((r) => Number(r.best_streak_days || 0) > 0)
       .sort(
         (a, b) =>
           Number(b.best_streak_days || 0) - Number(a.best_streak_days || 0)
@@ -268,7 +268,6 @@ export default function DashboardPage() {
   }, [bestStreaks]);
 
   const displayCurrent = useMemo(() => {
-    // Hide non-positive
     return (currentStreaks || [])
       .filter((r) => Number(r.current_streak_days || 0) > 0)
       .sort(
@@ -427,6 +426,9 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* ---------- NEW: Insights donuts (daily/weekly/monthly) ---------- */}
+        <InsightsPanel defaultWindow="daily" />
       </div>
     </div>
   );

@@ -347,6 +347,10 @@ class UserRepository {
   // HABIT_LOGS: generation & APIs
   // ---------------------------
 
+  /**
+   * Generate upcoming occurrences from TODAY forward.
+   * If a task has a deadline_date, only generate dates <= deadline_date.
+   */
   async generateOccurrences({ userId, horizonDays = 60 }) {
     // DAILY
     await this.db.query(
@@ -361,20 +365,20 @@ class UserRepository {
       FROM tasks t
       JOIN days d ON t.repeat = 'daily'
       WHERE t.user_id = (SELECT user_id FROM params)
-        AND (t.deadline_date IS NULL OR d.d >= t.deadline_date)
+        AND (t.deadline_date IS NULL OR d.d <= t.deadline_date)
       ON CONFLICT (task_id, occurred_on) DO NOTHING
       `,
       [userId, horizonDays]
     );
 
-    // WEEKLY
+    // WEEKLY (anchor = today’s weekday)
     await this.db.query(
       `
       WITH params AS (SELECT $1::int AS user_id, $2::int AS horizon),
       anchors AS (
         SELECT t.id AS task_id, t.user_id,
-               COALESCE(t.deadline_date, CURRENT_DATE) AS anchor,
-               EXTRACT(DOW FROM COALESCE(t.deadline_date, CURRENT_DATE))::int AS dow
+               CURRENT_DATE::date AS anchor,
+               EXTRACT(DOW FROM CURRENT_DATE)::int AS dow
         FROM tasks t
         WHERE t.user_id = (SELECT user_id FROM params) AND t.repeat = 'weekly'
       ),
@@ -388,18 +392,19 @@ class UserRepository {
       SELECT w.user_id, w.task_id, w.d
       FROM weeks w
       JOIN tasks t ON t.id = w.task_id
-      WHERE w.d >= COALESCE(t.deadline_date, CURRENT_DATE)
+      WHERE w.d >= CURRENT_DATE
+        AND (t.deadline_date IS NULL OR w.d <= t.deadline_date)
       ON CONFLICT (task_id, occurred_on) DO NOTHING
       `,
       [userId, horizonDays]
     );
 
-    // MONTHLY
+    // MONTHLY (anchor = today)
     await this.db.query(
       `
       WITH params AS (SELECT $1::int AS user_id, $2::int AS horizon),
       anchors AS (
-        SELECT t.id AS task_id, t.user_id, COALESCE(t.deadline_date, CURRENT_DATE)::date AS anchor
+        SELECT t.id AS task_id, t.user_id, CURRENT_DATE::date AS anchor
         FROM tasks t
         WHERE t.user_id = (SELECT user_id FROM params) AND t.repeat = 'monthly'
       ),
@@ -412,18 +417,19 @@ class UserRepository {
       SELECT m.user_id, m.task_id, m.d
       FROM months m
       JOIN tasks t ON t.id = m.task_id
-      WHERE m.d >= COALESCE(t.deadline_date, CURRENT_DATE)
+      WHERE m.d >= CURRENT_DATE
+        AND (t.deadline_date IS NULL OR m.d <= t.deadline_date)
       ON CONFLICT (task_id, occurred_on) DO NOTHING
       `,
       [userId, horizonDays]
     );
 
-    // YEARLY
+    // YEARLY (anchor = today)
     await this.db.query(
       `
       WITH params AS (SELECT $1::int AS user_id, $2::int AS horizon),
       anchors AS (
-        SELECT t.id AS task_id, t.user_id, COALESCE(t.deadline_date, CURRENT_DATE)::date AS anchor
+        SELECT t.id AS task_id, t.user_id, CURRENT_DATE::date AS anchor
         FROM tasks t
         WHERE t.user_id = (SELECT user_id FROM params) AND t.repeat = 'yearly'
       ),
@@ -436,29 +442,35 @@ class UserRepository {
       SELECT y.user_id, y.task_id, y.d
       FROM years y
       JOIN tasks t ON t.id = y.task_id
-      WHERE y.d >= COALESCE(t.deadline_date, CURRENT_DATE)
+      WHERE y.d >= CURRENT_DATE
+        AND (t.deadline_date IS NULL OR y.d <= t.deadline_date)
       ON CONFLICT (task_id, occurred_on) DO NOTHING
       `,
       [userId, horizonDays]
     );
   }
 
-  // NEW: generate horizon for a single task (used right after create)
-  async generateOccurrencesForTask({ userId, taskId, repeat, anchorDate, horizonDays = 60 }) {
+  // Generate for a single task, with anchorDate defaulting to today.
+  async generateOccurrencesForTask({ userId, taskId, repeat, anchorDate = null, horizonDays = 60, deadlineDate = null }) {
+    const anchor = anchorDate || "CURRENT_DATE";
+
     if (repeat === 'daily') {
       await this.db.query(
         `
-        WITH params AS (SELECT $1::int AS user_id, $2::int AS task_id, $3::date AS anchor, $4::int AS horizon),
+        WITH params AS (
+          SELECT $1::int AS user_id, $2::int AS task_id, ${anchor}::date AS anchor, $3::int AS horizon
+        ),
         days AS (
-          SELECT ((SELECT anchor FROM params) + i)::date AS d
-          FROM generate_series(0, (SELECT horizon FROM params)) AS gs(i)
+          SELECT (anchor + i)::date AS d
+          FROM params, generate_series(0, (SELECT horizon FROM params)) AS gs(i)
         )
         INSERT INTO habit_logs (user_id, task_id, occurred_on)
         SELECT (SELECT user_id FROM params), (SELECT task_id FROM params), d.d
         FROM days d
+        WHERE $4::date IS NULL OR d.d <= $4::date
         ON CONFLICT (task_id, occurred_on) DO NOTHING
         `,
-        [userId, taskId, anchorDate, horizonDays]
+        [userId, taskId, horizonDays, deadlineDate]
       );
       return;
     }
@@ -466,7 +478,9 @@ class UserRepository {
     if (repeat === 'weekly') {
       await this.db.query(
         `
-        WITH params AS (SELECT $1::int AS user_id, $2::int AS task_id, $3::date AS anchor, $4::int AS horizon),
+        WITH params AS (
+          SELECT $1::int AS user_id, $2::int AS task_id, ${anchor}::date AS anchor, $3::int AS horizon
+        ),
         seq AS (SELECT generate_series(0, CEIL((SELECT horizon FROM params)/7.0)::int) AS i),
         weeks AS (
           SELECT ( date_trunc('week', (SELECT anchor FROM params))::date
@@ -478,9 +492,10 @@ class UserRepository {
         SELECT (SELECT user_id FROM params), (SELECT task_id FROM params), w.d
         FROM weeks w
         WHERE w.d >= (SELECT anchor FROM params)
+          AND ($4::date IS NULL OR w.d <= $4::date)
         ON CONFLICT (task_id, occurred_on) DO NOTHING
         `,
-        [userId, taskId, anchorDate, horizonDays]
+        [userId, taskId, horizonDays, deadlineDate]
       );
       return;
     }
@@ -488,7 +503,9 @@ class UserRepository {
     if (repeat === 'monthly') {
       await this.db.query(
         `
-        WITH params AS (SELECT $1::int AS user_id, $2::int AS task_id, $3::date AS anchor, $4::int AS horizon),
+        WITH params AS (
+          SELECT $1::int AS user_id, $2::int AS task_id, ${anchor}::date AS anchor, $3::int AS horizon
+        ),
         months AS (
           SELECT ((SELECT anchor FROM params) + (INTERVAL '1 month' * i))::date AS d
           FROM generate_series(0, CEIL((SELECT horizon FROM params)/30.0)::int) AS gs(i)
@@ -497,9 +514,10 @@ class UserRepository {
         SELECT (SELECT user_id FROM params), (SELECT task_id FROM params), m.d
         FROM months m
         WHERE m.d >= (SELECT anchor FROM params)
+          AND ($4::date IS NULL OR m.d <= $4::date)
         ON CONFLICT (task_id, occurred_on) DO NOTHING
         `,
-        [userId, taskId, anchorDate, horizonDays]
+        [userId, taskId, horizonDays, deadlineDate]
       );
       return;
     }
@@ -507,7 +525,9 @@ class UserRepository {
     if (repeat === 'yearly') {
       await this.db.query(
         `
-        WITH params AS (SELECT $1::int AS user_id, $2::int AS task_id, $3::date AS anchor, $4::int AS horizon),
+        WITH params AS (
+          SELECT $1::int AS user_id, $2::int AS task_id, ${anchor}::date AS anchor, $3::int AS horizon
+        ),
         years AS (
           SELECT ((SELECT anchor FROM params) + (INTERVAL '1 year' * i))::date AS d
           FROM generate_series(0, GREATEST(1, CEIL((SELECT horizon FROM params)/365.0)::int)) AS gs(i)
@@ -516,9 +536,10 @@ class UserRepository {
         SELECT (SELECT user_id FROM params), (SELECT task_id FROM params), y.d
         FROM years y
         WHERE y.d >= (SELECT anchor FROM params)
+          AND ($4::date IS NULL OR y.d <= $4::date)
         ON CONFLICT (task_id, occurred_on) DO NOTHING
         `,
-        [userId, taskId, anchorDate, horizonDays]
+        [userId, taskId, horizonDays, deadlineDate]
       );
       return;
     }
@@ -527,7 +548,7 @@ class UserRepository {
     await this.db.query(
       `
       INSERT INTO habit_logs (user_id, task_id, occurred_on)
-      VALUES ($1, $2, $3::date)
+      VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE))
       ON CONFLICT (task_id, occurred_on) DO NOTHING
       `,
       [userId, taskId, anchorDate]
@@ -566,7 +587,7 @@ class UserRepository {
     }
   }
 
-  // NEW: idempotent set/unset completion used by PUT/DELETE route
+  // Idempotent set/unset completion used by routes
   async setCompletion({ userId, taskId, date, completed, secondsLogged }) {
     const sql = `
       INSERT INTO habit_logs (user_id, task_id, occurred_on, completed, completed_at, seconds_logged)
@@ -588,7 +609,7 @@ class UserRepository {
     return rows[0];
   }
 
-  // NEW: habits listing for a day used by GET /habits/day
+  // Habits listing for a day used by GET /habits/day
   async listHabitsForDay({ userId, date }) {
     const sql = `
       SELECT t.id AS task_id,
@@ -606,7 +627,7 @@ class UserRepository {
     return rows;
   }
 
-  // NEW: single-habit current streak used by GET /habits/:taskId/streak
+  // Current streak for a single habit
   async getCurrentStreak({ userId, taskId }) {
     const sql = `
       WITH days AS (
@@ -633,7 +654,7 @@ class UserRepository {
     return Number(rows[0]?.current_streak || 0);
   }
 
-  // Existing analytics
+  // Agenda for a specific date
   getAgendaForDate({ userId, date }) {
     return this.db.query(
       `
@@ -654,7 +675,7 @@ class UserRepository {
         AND (
           (t.repeat IS NULL AND t.deadline_date = $2::date) OR
           (t.repeat = 'daily') OR
-          (t.repeat = 'weekly' AND EXTRACT(DOW FROM COALESCE(t.deadline_date, $2::date)) = EXTRACT(DOW FROM $2::date)) OR
+          (t.repeat = 'weekly' AND EXTRACT(DOW FROM COALESCE($2::date, CURRENT_DATE)) = EXTRACT(DOW FROM $2::date)) OR
           (t.repeat = 'monthly' AND t.deadline_date IS NOT NULL AND EXTRACT(DAY FROM t.deadline_date) = EXTRACT(DAY FROM $2::date)) OR
           (t.repeat = 'yearly'  AND t.deadline_date IS NOT NULL
              AND EXTRACT(MONTH FROM t.deadline_date) = EXTRACT(MONTH FROM $2::date)
@@ -666,6 +687,7 @@ class UserRepository {
     );
   }
 
+  // Classic completion stats
   getDailyCompletion({ userId, days = 14 }) {
     return this.db.query(
       `
@@ -727,6 +749,133 @@ class UserRepository {
     );
   }
 
+  // ---------------------------
+  // NEW: Percent-progress (for charts)
+  // ---------------------------
+  getDailyProgress({ userId, days = 14 }) {
+    return this.db.query(
+      `
+      WITH bounds AS (
+        SELECT generate_series(
+          (CURRENT_DATE - ($2::int - 1) * INTERVAL '1 day')::date,
+          CURRENT_DATE,
+          INTERVAL '1 day'
+        )::date AS d
+      )
+      SELECT
+        b.d AS date,
+        t.id AS task_id,
+        t.activity_name,
+        t.timer,
+        t.counter,
+        COALESCE(SUM(CASE WHEN p.type = 'minutes' THEN p.value END),0)::int AS progress_minutes,
+        COALESCE(SUM(CASE WHEN p.type = 'count'   THEN p.value END),0)::int AS progress_count,
+        LEAST(
+          1.0,
+          CASE
+            WHEN t.timer IS NOT NULL AND t.timer > 0
+              THEN COALESCE(SUM(CASE WHEN p.type='minutes' THEN p.value END),0)::float / t.timer
+            WHEN t.counter IS NOT NULL AND t.counter > 0
+              THEN COALESCE(SUM(CASE WHEN p.type='count' THEN p.value END),0)::float / t.counter
+            ELSE 0
+          END
+        ) AS pct
+      FROM bounds b
+      CROSS JOIN tasks t
+      LEFT JOIN task_progress p
+        ON p.task_id = t.id
+       AND p.user_id = $1
+       AND p.at >= b.d::timestamptz
+       AND p.at < (b.d + INTERVAL '1 day')::timestamptz
+      WHERE t.user_id = $1
+      GROUP BY b.d, t.id
+      ORDER BY b.d DESC, t.id
+      `,
+      [userId, days]
+    );
+  }
+
+  getWeeklyProgress({ userId, weeks = 8 }) {
+    return this.db.query(
+      `
+      WITH weeks AS (
+        SELECT date_trunc('week', (CURRENT_DATE - (i*7))::date)::date AS wk_start
+        FROM generate_series(0, $2::int-1) AS g(i)
+      )
+      SELECT
+        w.wk_start,
+        t.id AS task_id,
+        t.activity_name,
+        t.timer,
+        t.counter,
+        COALESCE(SUM(CASE WHEN p.type='minutes' THEN p.value END),0)::int AS progress_minutes,
+        COALESCE(SUM(CASE WHEN p.type='count'   THEN p.value END),0)::int AS progress_count,
+        LEAST(
+          1.0,
+          CASE
+            WHEN t.timer IS NOT NULL AND t.timer > 0
+              THEN COALESCE(SUM(CASE WHEN p.type='minutes' THEN p.value END),0)::float / t.timer
+            WHEN t.counter IS NOT NULL AND t.counter > 0
+              THEN COALESCE(SUM(CASE WHEN p.type='count' THEN p.value END),0)::float / t.counter
+            ELSE 0
+          END
+        ) AS pct
+      FROM weeks w
+      CROSS JOIN tasks t
+      LEFT JOIN task_progress p
+        ON p.task_id = t.id
+       AND p.user_id = $1
+       AND p.at >= w.wk_start::timestamptz
+       AND p.at <  (w.wk_start + INTERVAL '7 days')::timestamptz
+      WHERE t.user_id = $1
+      GROUP BY w.wk_start, t.id
+      ORDER BY w.wk_start DESC, t.id
+      `,
+      [userId, weeks]
+    );
+  }
+
+  getMonthlyProgress({ userId, months = 6 }) {
+    return this.db.query(
+      `
+      WITH months AS (
+        SELECT date_trunc('month', (CURRENT_DATE - (INTERVAL '1 month' * i)))::date AS m_start
+        FROM generate_series(0, $2::int-1) AS g(i)
+      )
+      SELECT
+        m.m_start,
+        t.id AS task_id,
+        t.activity_name,
+        t.timer,
+        t.counter,
+        COALESCE(SUM(CASE WHEN p.type='minutes' THEN p.value END),0)::int AS progress_minutes,
+        COALESCE(SUM(CASE WHEN p.type='count'   THEN p.value END),0)::int AS progress_count,
+        LEAST(
+          1.0,
+          CASE
+            WHEN t.timer IS NOT NULL AND t.timer > 0
+              THEN COALESCE(SUM(CASE WHEN p.type='minutes' THEN p.value END),0)::float / t.timer
+            WHEN t.counter IS NOT NULL AND t.counter > 0
+              THEN COALESCE(SUM(CASE WHEN p.type='count' THEN p.value END),0)::float / t.counter
+            ELSE 0
+          END
+        ) AS pct
+      FROM months m
+      CROSS JOIN tasks t
+      LEFT JOIN task_progress p
+        ON p.task_id = t.id
+       AND p.user_id = $1
+       AND p.at >= m.m_start::timestamptz
+       AND p.at <  (m.m_start + INTERVAL '1 month')::timestamptz
+      WHERE t.user_id = $1
+      GROUP BY m.m_start, t.id
+      ORDER BY m.m_start DESC, t.id
+      `,
+      [userId, months]
+    );
+  }
+
+  // Best streaks / overall streaks (unchanged)
   getCurrentStreaks({ userId }) {
     return this.db.query(
       `

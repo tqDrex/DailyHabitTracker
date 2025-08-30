@@ -5,7 +5,7 @@ const { DateTime } = require("luxon");
 module.exports = function buildTasksRoutes(users) {
   const router = express.Router();
 
-  // Prefer req.user.id (from requireAuth). Fall back to username cookie if needed.
+  // Prefer req.user.id (req set by your requireAuth). Fall back to username cookie.
   async function getUserId(req) {
     if (req.user?.id) return req.user.id;
 
@@ -15,9 +15,9 @@ module.exports = function buildTasksRoutes(users) {
     return rows?.[0]?.id ?? null;
   }
 
-  // ---------- Ensure tables (idempotent) ----------
+  // ---------- Ensure schema (safe to run many times) ----------
   async function ensureSchema() {
-    // progress
+    // Progress rows
     await users.db.query(`
       CREATE TABLE IF NOT EXISTS task_progress (
         id        SERIAL PRIMARY KEY,
@@ -30,14 +30,14 @@ module.exports = function buildTasksRoutes(users) {
     `);
     await users.db.query(
       `CREATE INDEX IF NOT EXISTS idx_task_progress_task_at
-         ON task_progress(task_id, at)`
+       ON task_progress(task_id, at)`
     );
     await users.db.query(
       `CREATE INDEX IF NOT EXISTS idx_task_progress_user_at
-         ON task_progress(user_id, at)`
+       ON task_progress(user_id, at)`
     );
 
-    // day-level completions for streaks
+    // Day-level completion mirror (used for streaks)
     await users.db.query(`
       CREATE TABLE IF NOT EXISTS task_completions (
         id         BIGSERIAL PRIMARY KEY,
@@ -48,7 +48,7 @@ module.exports = function buildTasksRoutes(users) {
       );
     `);
 
-    // streak aggregates
+    // Streak aggregates
     await users.db.query(`
       CREATE TABLE IF NOT EXISTS task_streaks (
         task_id        BIGINT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
@@ -60,7 +60,7 @@ module.exports = function buildTasksRoutes(users) {
   }
   ensureSchema().catch(console.error);
 
-  // ---- Helper: compute the "current window" for a task (UTC) ----
+  // ---------- Window helper (UTC math) ----------
   function windowBounds(task, now = new Date()) {
     const atStartOfDay = (d) => {
       const x = new Date(d);
@@ -95,7 +95,7 @@ module.exports = function buildTasksRoutes(users) {
       return { start, end };
     }
 
-    // If it has a deadline, window = today..deadline end-of-day
+    // No repeat: window is today..deadline inclusive
     if (task.deadline_date) {
       const start = atStartOfDay(now);
       const end = new Date(task.deadline_date);
@@ -103,14 +103,14 @@ module.exports = function buildTasksRoutes(users) {
       return { start, end };
     }
 
-    // Default: just today.
+    // Fallback: just today
     const start = atStartOfDay(now);
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + 1);
     return { start, end };
   }
 
-  // ---- Recompute streaks from completions (same logic as habits) ----
+  // ---------- Recompute streaks from task_completions ----------
   async function recomputeAndSaveStreaks(taskId, userTz) {
     const { rows: compRows } = await users.db.query(
       `SELECT done_day::date AS d
@@ -121,7 +121,11 @@ module.exports = function buildTasksRoutes(users) {
     );
 
     const days = compRows
-      .map((r) => (typeof r.d === "string" ? r.d.slice(0, 10) : new Date(r.d).toISOString().slice(0, 10)))
+      .map((r) =>
+        typeof r.d === "string"
+          ? r.d.slice(0, 10)
+          : new Date(r.d).toISOString().slice(0, 10)
+      )
       .filter(Boolean)
       .map((s) => DateTime.fromISO(s).startOf("day"));
 
@@ -140,10 +144,10 @@ module.exports = function buildTasksRoutes(users) {
       }
     }
 
-    // best streak overall
-    let best = 0,
-      run = 0,
-      prev = null;
+    // best ever
+    let best = 0;
+    let run = 0;
+    let prev = null;
     for (const d of days) {
       if (!prev) run = 1;
       else run = d.diff(prev, "days").days === 1 ? run + 1 : 1;
@@ -166,7 +170,7 @@ module.exports = function buildTasksRoutes(users) {
     return { current_streak: current, best_streak: best, last_done_day: lastDone };
   }
 
-  // ---- LIST TASKS (augmented with *current-window* progress) ----
+  // ---------- GET /tasks — list with current-window progress ----------
   router.get("/", async (req, res) => {
     try {
       const uid = await getUserId(req);
@@ -219,7 +223,7 @@ module.exports = function buildTasksRoutes(users) {
     }
   });
 
-  // ---- CREATE TASK ----
+  // ---------- POST /tasks/createTask ----------
   router.post("/createTask", async (req, res) => {
     try {
       const uid = await getUserId(req);
@@ -246,13 +250,13 @@ module.exports = function buildTasksRoutes(users) {
     }
   });
 
-  // ---- DELETE TASK ----
+  // ---------- DELETE /tasks/:id ----------
   router.delete("/:id", async (req, res) => {
     try {
       const uid = await getUserId(req);
       if (!uid) return res.status(401).json({ error: "Not logged in" });
 
-    const id = Number(req.params.id);
+      const id = Number(req.params.id);
       if (!id) return res.status(400).json({ error: "Bad id" });
 
       const { rowCount } = await users.db.query(
@@ -268,9 +272,9 @@ module.exports = function buildTasksRoutes(users) {
     }
   });
 
-  // ---- ADD PROGRESS (and update streaks if we just hit 100%) ----
-  // Body: { type: 'minutes'|'count', value: number (>0), at?: ISOString, tz?: IANA }
-  // Returns: { ok: true, totals: { minutes, count }, streak?: {...} }
+  // ---------- POST /tasks/:id/progress ----------
+  // Body: { type: 'minutes'|'count', value: >0, at?: ISOString, tz?: IANA }
+  // Returns: { ok:true, totals:{minutes,count}, streak?:{...} }
   router.post("/:id/progress", async (req, res) => {
     try {
       const uid = await getUserId(req);
@@ -287,7 +291,7 @@ module.exports = function buildTasksRoutes(users) {
       if (!Number.isFinite(v) || v <= 0)
         return res.status(400).json({ error: "Value must be > 0" });
 
-      // Validate ownership + metric presence on task
+      // Validate ownership + metric presence
       const { rows: taskRows } = await users.db.query(
         `SELECT id, user_id, timer, counter, repeat, deadline_date
            FROM tasks
@@ -309,7 +313,7 @@ module.exports = function buildTasksRoutes(users) {
         [id, uid, type, v, atTs.toISOString()]
       );
 
-      // Totals across all time (for UI)
+      // Totals across all time (for UI display)
       const { rows: sumsAll } = await users.db.query(
         `SELECT
            COALESCE(SUM(CASE WHEN type='minutes' THEN value END), 0)::int AS minutes,
@@ -339,34 +343,34 @@ module.exports = function buildTasksRoutes(users) {
 
       let streak = null;
 
-      // If we've reached the target for the active metric(s), mark today complete and recompute streaks
+      // If window goal reached on any active metric, mark local-day complete and recompute streaks
       const timerDone = timerTarget ? pm >= timerTarget : false;
       const countDone = counterTarget ? pc >= counterTarget : false;
       const nowLocalDay = DateTime.fromJSDate(atTs).setZone(userTz).toISODate();
 
       if (timerDone || countDone) {
-        // Mirror completion at the day granularity (today in user's tz)
         await users.db.query(
           `INSERT INTO task_completions (task_id, done_day)
-             VALUES ($1, $2::date)
+           VALUES ($1, $2::date)
            ON CONFLICT (task_id, done_day) DO NOTHING`,
           [id, nowLocalDay]
         );
 
-        // Ensure streak row exists
         await users.db.query(
           `INSERT INTO task_streaks (task_id) VALUES ($1)
            ON CONFLICT (task_id) DO NOTHING`,
           [id]
         );
 
-        // Recompute streaks
         streak = await recomputeAndSaveStreaks(id, userTz);
       }
 
       res.json({
         ok: true,
-        totals: { minutes: sumsAll[0].minutes, count: sumsAll[0].count },
+        totals: {
+          minutes: Number(sumsAll[0].minutes || 0),
+          count: Number(sumsAll[0].count || 0),
+        },
         ...(streak ? { streak } : {}),
       });
     } catch (e) {
@@ -375,9 +379,8 @@ module.exports = function buildTasksRoutes(users) {
     }
   });
 
-  // ---- PROGRESS SUMMARY (for your UI card) ----
-  // GET /tasks/:id/progress/summary
-  // Returns totals across all time: { minutes, count }
+  // ---------- GET /tasks/:id/progress/summary ----------
+  // Simple totals across all time (used by your ToDo UI hydrate)
   router.get("/:id/progress/summary", async (req, res) => {
     try {
       const uid = await getUserId(req);
@@ -386,7 +389,7 @@ module.exports = function buildTasksRoutes(users) {
       const id = Number(req.params.id);
       if (!id) return res.status(400).json({ error: "Bad task id" });
 
-      // Optional: ensure task belongs to user
+      // Ensure ownership
       const { rows: trows } = await users.db.query(
         `SELECT id FROM tasks WHERE id = $1 AND user_id = $2`,
         [id, uid]
@@ -402,7 +405,10 @@ module.exports = function buildTasksRoutes(users) {
         [id, uid]
       );
 
-      res.json({ minutes: rows[0].minutes, count: rows[0].count });
+      res.json({
+        minutes: Number(rows[0].minutes || 0),
+        count: Number(rows[0].count || 0),
+      });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Failed to load progress summary" });
