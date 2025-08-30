@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+// src/pages/DashboardPage.jsx
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../style/Dashboard.css";
+
+/* ---------- Helpers ---------- */
+function getUserIanaTz() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 function NavButton({ to, children }) {
   const navigate = useNavigate();
@@ -39,7 +49,6 @@ function Sparkline({ points = [], height = 40, width = 160, max = 100 }) {
       role="img"
       aria-label="Daily completion sparkline"
     >
-      <polyline points="" fill="none" />
       <path d={path} fill="none" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
@@ -79,6 +88,7 @@ export default function DashboardPage() {
   const [loadingCompletion, setLoadingCompletion] = useState(true);
 
   const navigate = useNavigate();
+  const tz = getUserIanaTz();
 
   // Load session
   useEffect(() => {
@@ -99,64 +109,97 @@ export default function DashboardPage() {
     return () => ac.abort();
   }, []);
 
-  // Load streaks + completion once we know the user
+  // Helper: refetch streaks (stable)
+  const refetchStreaks = useCallback(
+    async (signal) => {
+      if (!user?.id) return;
+      const [curRes, bestRes] = await Promise.all([
+        fetch(
+          `http://localhost:3000/streaks/current?userId=${user.id}&tz=${encodeURIComponent(
+            tz
+          )}`,
+          { credentials: "include", signal }
+        ),
+        fetch(`http://localhost:3000/streaks/best?userId=${user.id}`, {
+          credentials: "include",
+          signal,
+        }),
+      ]);
+      const [curRows, bestRows] = await Promise.all([
+        curRes.json(),
+        bestRes.json(),
+      ]);
+      (curRows || []).sort(
+        (a, b) =>
+          Number(b.current_streak_days || 0) - Number(a.current_streak_days || 0)
+      );
+      (bestRows || []).sort(
+        (a, b) => Number(b.best_streak_days || 0) - Number(a.best_streak_days || 0)
+      );
+      setCurrentStreaks(curRows || []);
+      setBestStreaks(bestRows || []);
+    },
+    [user?.id, tz]
+  );
+
+  // Helper: refetch completion series (stable)
+  const refetchCompletion = useCallback(
+    async (signal) => {
+      if (!user?.id) return;
+      const res = await fetch(
+        `http://localhost:3000/stats/completion/daily?userId=${user.id}&tz=${encodeURIComponent(
+          tz
+        )}`,
+        { credentials: "include", signal }
+      );
+      const rows = await res.json().catch(() => []);
+      const safe = Array.isArray(rows) ? rows.slice() : [];
+      safe.sort((a, b) => {
+        const da = new Date(a.day || a.date || 0).getTime();
+        const db = new Date(b.day || b.date || 0).getTime();
+        return da - db;
+      });
+      setDailyCompletion(safe);
+    },
+    [user?.id, tz]
+  );
+
+  // Load on mount/user change
   useEffect(() => {
     if (!user?.id) return;
     const ac = new AbortController();
-
     (async () => {
       try {
         setLoadingStreaks(true);
-        const [curRes, bestRes] = await Promise.all([
-          fetch(`http://localhost:3000/streaks/current?userId=${user.id}`, {
-            credentials: "include",
-            signal: ac.signal,
-          }),
-          fetch(`http://localhost:3000/streaks/best?userId=${user.id}`, {
-            credentials: "include",
-            signal: ac.signal,
-          }),
-        ]);
-        const [curRows, bestRows] = await Promise.all([
-          curRes.json(),
-          bestRes.json(),
-        ]);
-        if (!ac.signal.aborted) {
-          curRows.sort(
-            (a, b) => b.current_streak_days - a.current_streak_days
-          );
-          bestRows.sort((a, b) => b.best_streak_days - a.best_streak_days);
-          setCurrentStreaks(curRows);
-          setBestStreaks(bestRows);
-        }
-      } catch {
-        if (!ac.signal.aborted) {
-          setCurrentStreaks([]);
-          setBestStreaks([]);
-        }
-      } finally {
-        if (!ac.signal.aborted) setLoadingStreaks(false);
-      }
-    })();
-
-    (async () => {
-      try {
         setLoadingCompletion(true);
-        const res = await fetch(
-          `http://localhost:3000/stats/completion/daily?userId=${user.id}`,
-          { credentials: "include", signal: ac.signal }
-        );
-        const rows = await res.json();
-        if (!ac.signal.aborted) setDailyCompletion(rows || []);
-      } catch {
-        if (!ac.signal.aborted) setDailyCompletion([]);
+        await Promise.all([
+          refetchStreaks(ac.signal),
+          refetchCompletion(ac.signal),
+        ]);
       } finally {
-        if (!ac.signal.aborted) setLoadingCompletion(false);
+        if (!ac.signal.aborted) {
+          setLoadingStreaks(false);
+          setLoadingCompletion(false);
+        }
       }
     })();
-
     return () => ac.abort();
-  }, [user?.id]);
+  }, [user?.id, tz, refetchStreaks, refetchCompletion]);
+
+  // Listen for Calendar's “streaks:changed” and refetch
+  useEffect(() => {
+    if (!user?.id) return;
+    const onChanged = async () => {
+      try {
+        await refetchStreaks();
+        await refetchCompletion();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("streaks:changed", onChanged);
+    return () => window.removeEventListener("streaks:changed", onChanged);
+  }, [user?.id, tz, refetchStreaks, refetchCompletion]);
 
   const handleLogout = async () => {
     try {
@@ -198,10 +241,10 @@ export default function DashboardPage() {
     }
   };
 
-  // Derived stats (keep hooks above any early return)
+  // Derived stats
   const todayStats = useMemo(() => {
     if (!dailyCompletion.length) return { total: 0, done: 0, pct: 0 };
-    const last = dailyCompletion[dailyCompletion.length - 1];
+    const last = dailyCompletion[dailyCompletion.length - 1] || {};
     return {
       total: Number(last.total || 0),
       done: Number(last.done || 0),
@@ -214,6 +257,26 @@ export default function DashboardPage() {
     [dailyCompletion]
   );
 
+  // Display lists
+  const displayBest = useMemo(() => {
+    return (bestStreaks || [])
+      .filter((r) => Number(r.best_streak_days || 0) > 0) // exclude 0d from Best
+      .sort(
+        (a, b) =>
+          Number(b.best_streak_days || 0) - Number(a.best_streak_days || 0)
+      );
+  }, [bestStreaks]);
+
+  const displayCurrent = useMemo(() => {
+    // Hide non-positive
+    return (currentStreaks || [])
+      .filter((r) => Number(r.current_streak_days || 0) > 0)
+      .sort(
+        (a, b) =>
+          Number(b.current_streak_days || 0) - Number(a.current_streak_days || 0)
+      );
+  }, [currentStreaks]);
+
   if (!user) return <p>Loading...</p>;
 
   return (
@@ -222,9 +285,9 @@ export default function DashboardPage() {
         <div className="dashboard__brand">Daily Habit Tracker</div>
 
         <nav className="dashboard__nav">
+          <NavButton to="/dashboard">Dashboard</NavButton>
           <NavButton to="/todo">To-Do</NavButton>
           <NavButton to="/calendar">Calendar</NavButton>
-
         </nav>
 
         <div className="dashboard__actions">
@@ -320,25 +383,17 @@ export default function DashboardPage() {
                   <div className="grid grid--2">
                     <div className="card p-12">
                       <h4 className="mt-0">Current 🔥</h4>
-                      {currentStreaks.length === 0 ? (
+                      {displayCurrent.length === 0 ? (
                         <p className="muted">
                           No streaks yet. Complete a habit today to start one!
                         </p>
                       ) : (
                         <div className="list">
-                          {currentStreaks.slice(0, 6).map((r) => (
+                          {displayCurrent.slice(0, 6).map((r) => (
                             <Row
                               key={`cur-${r.task_id}`}
-                              left={
-                                <span className="truncate">
-                                  {r.activity_name}
-                                </span>
-                              }
-                              right={
-                                <span className="badge">
-                                  {r.current_streak_days}d
-                                </span>
-                              }
+                              left={<span className="truncate">{r.activity_name}</span>}
+                              right={<span className="badge">{Number(r.current_streak_days || 0)}d</span>}
                             />
                           ))}
                         </div>
@@ -347,23 +402,15 @@ export default function DashboardPage() {
 
                     <div className="card p-12">
                       <h4 className="mt-0">Best 🏆</h4>
-                      {bestStreaks.length === 0 ? (
+                      {displayBest.length === 0 ? (
                         <p className="muted">No history yet.</p>
                       ) : (
                         <div className="list">
-                          {bestStreaks.slice(0, 6).map((r) => (
+                          {displayBest.slice(0, 6).map((r) => (
                             <Row
                               key={`best-${r.task_id}`}
-                              left={
-                                <span className="truncate">
-                                  {r.activity_name}
-                                </span>
-                              }
-                              right={
-                                <span className="badge">
-                                  {r.best_streak_days}d
-                                </span>
-                              }
+                              left={<span className="truncate">{r.activity_name}</span>}
+                              right={<span className="badge">{Number(r.best_streak_days || 0)}d</span>}
                             />
                           ))}
                         </div>

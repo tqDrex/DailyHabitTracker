@@ -1,5 +1,5 @@
 // src/pages/CalendarPage.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { gapi } from "gapi-script";
 import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
@@ -56,7 +56,6 @@ export default function CalendarPage() {
       } catch (err) {
         console.error("Failed to load user:", err);
         if (!cancelled) setUser(null);
-        // optionally: window.location.href = "/login";
       }
     })();
     return () => {
@@ -65,149 +64,201 @@ export default function CalendarPage() {
   }, []);
 
   // ---------------- Google: list events for the selected day ----------------
-  async function getEvents(d) {
-    if (!calendarId || !hasGoogleToken || !isGapiLoaded) return;
+  const getEvents = useCallback(
+    async (d) => {
+      if (!calendarId || !hasGoogleToken || !isGapiLoaded) return;
 
-    const startOfDay = new Date(d);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(d);
-    endOfDay.setHours(23, 59, 59, 999);
+      const startOfDay = new Date(d);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(d);
+      endOfDay.setHours(23, 59, 59, 999);
 
-    try {
-      const response = await window.gapi.client.calendar.events.list({
-        calendarId,
-        timeMin: startOfDay.toISOString(),
-        timeMax: endOfDay.toISOString(),
-        showDeleted: false,
-        singleEvents: true,
-        maxResults: 25,
-        orderBy: "startTime",
-      });
-      setEvents(response.result.items || []);
-      setError(null);
-    } catch (err) {
-      console.error("Error fetching events:", err);
-      setError(
-        "Failed to fetch events. Check your permissions and calendar ID."
-      );
-    }
-  }
+      try {
+        const response = await window.gapi.client.calendar.events.list({
+          calendarId,
+          timeMin: startOfDay.toISOString(),
+          timeMax: endOfDay.toISOString(),
+          showDeleted: false,
+          singleEvents: true,
+          maxResults: 25,
+          orderBy: "startTime",
+        });
+        setEvents(response.result.items || []);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching events:", err);
+        setError(
+          "Failed to fetch events. Check your permissions and calendar ID."
+        );
+      }
+    },
+    [calendarId, hasGoogleToken, isGapiLoaded]
+  );
 
   // ---------------- Habits: fetch per-day list ----------------
-  async function fetchHabitsForDate(dateStr) {
-    if (!userId) return;
-    setIsHabitsLoading(true);
-    try {
-      const u = new URL("http://localhost:3000/habits/day");
-      u.searchParams.set("date", dateStr); // e.g., "2025-08-28"
-      u.searchParams.set("userId", String(userId)); // until habits routes use req.user.id only
+  const fetchHabitsForDate = useCallback(
+    async (dateStr) => {
+      if (!userId) return;
+      setIsHabitsLoading(true);
+      try {
+        const u = new URL("http://localhost:3000/habits/day");
+        u.searchParams.set("date", dateStr); // e.g., "2025-08-28"
+        u.searchParams.set("userId", String(userId)); // until habits routes use req.user.id only
 
-      const res = await fetch(u.toString(), { credentials: "include" });
-      if (!res.ok) throw new Error(`Failed to load habits for ${dateStr}`);
+        const res = await fetch(u.toString(), { credentials: "include" });
+        if (!res.ok) throw new Error(`Failed to load habits for ${dateStr}`);
 
-      const data = await res.json();
-      setHabitRows(data.rows || []);
-    } catch (e) {
-      console.error(e);
-      setError(e.message);
-      setHabitRows([]);
-    } finally {
-      setIsHabitsLoading(false);
-    }
-  }
+        const data = await res.json();
+        setHabitRows(data.rows || []);
+      } catch (e) {
+        console.error(e);
+        setError(e.message);
+        setHabitRows([]);
+      } finally {
+        setIsHabitsLoading(false);
+      }
+    },
+    [userId]
+  );
 
   // Toggle a habit’s completion for the selected date
-  async function toggleHabit(taskId, nextCompleted) {
-    try {
-      const res = await fetch(
-        `http://localhost:3000/habits/${taskId}/complete`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, date: isoDate, completed: nextCompleted }),
+  const toggleHabit = useCallback(
+    async (taskId, nextCompleted) => {
+      try {
+        const res = await fetch(
+          `http://localhost:3000/habits/${taskId}/complete`,
+          {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId,
+              date: isoDate, // "YYYY-MM-DD" (user-local day you selected)
+              completed: nextCompleted, // true = mark done, false = undo
+              tz: tz || "UTC",
+            }),
+          }
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error || "Failed to update habit completion");
         }
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error || "Failed to update habit completion");
+
+        // Try to read updated streak payload (our server may return { ok, streak })
+        let payload = null;
+        try {
+          payload = await res.json();
+        } catch {
+          // ignore if server returned no json body
+        }
+
+        // Refresh this day's habit list
+        await fetchHabitsForDate(isoDate);
+
+        // 🔔 Notify other pages (e.g., Dashboard) that streaks changed
+        window.dispatchEvent(
+          new CustomEvent("streaks:changed", {
+            detail: { taskId, date: isoDate, ...(payload || {}) },
+          })
+        );
+      } catch (e) {
+        console.error(e);
+        setError(e.message);
       }
-      await fetchHabitsForDate(isoDate);
-    } catch (e) {
-      console.error(e);
-      setError(e.message);
-    }
-  }
+    },
+    [userId, isoDate, tz, fetchHabitsForDate]
+  );
 
   // ---------------- Create Google calendar event ----------------
-  async function handleCreateEvent(e) {
-    e.preventDefault();
-    if (
-      !isGapiLoaded ||
-      !hasGoogleToken ||
-      !calendarId ||
-      !newEventSummary
-    ) {
-      setError(
-        "Cannot create event. Enter a name and ensure Google is linked."
-      );
-      return;
-    }
+  const handleCreateEvent = useCallback(
+    async (e) => {
+      e.preventDefault();
+      if (
+        !isGapiLoaded ||
+        !hasGoogleToken ||
+        !calendarId ||
+        !newEventSummary
+      ) {
+        setError(
+          "Cannot create event. Enter a name and ensure Google is linked."
+        );
+        return;
+      }
 
-    const startDate = new Date(date);
-    const [sh, sm] = eventStartTime.split(":");
-    startDate.setHours(parseInt(sh, 10), parseInt(sm, 10));
+      const startDate = new Date(date);
+      const [sh, sm] = eventStartTime.split(":");
+      startDate.setHours(parseInt(sh, 10), parseInt(sm, 10));
 
-    const endDate = new Date(date);
-    const [eh, em] = eventEndTime.split(":");
-    endDate.setHours(parseInt(eh, 10), parseInt(em, 10));
+      const endDate = new Date(date);
+      const [eh, em] = eventEndTime.split(":");
+      endDate.setHours(parseInt(eh, 10), parseInt(em, 10));
 
-    const event = {
-      summary: newEventSummary.trim(),
-      start: { dateTime: startDate.toISOString(), timeZone: tz },
-      end: { dateTime: endDate.toISOString(), timeZone: tz },
-    };
-    if (recurrenceFrequency !== "NONE") {
-      event.recurrence = [
-        `RRULE:FREQ=${recurrenceFrequency};COUNT=${recurrenceCount}`,
-      ];
-    }
+      const event = {
+        summary: newEventSummary.trim(),
+        start: { dateTime: startDate.toISOString(), timeZone: tz },
+        end: { dateTime: endDate.toISOString(), timeZone: tz },
+      };
+      if (recurrenceFrequency !== "NONE") {
+        event.recurrence = [
+          `RRULE:FREQ=${recurrenceFrequency};COUNT=${recurrenceCount}`,
+        ];
+      }
 
-    try {
-      await window.gapi.client.calendar.events.insert({
-        calendarId,
-        resource: event,
-      });
-      setNewEventSummary("");
-      await getEvents(date);
-    } catch (err) {
-      console.error("Error adding event:", err);
-      setError("Failed to add event. Please check your permissions.");
-    }
-  }
+      try {
+        await window.gapi.client.calendar.events.insert({
+          calendarId,
+          resource: event,
+        });
+        setNewEventSummary("");
+        await getEvents(date);
+      } catch (err) {
+        console.error("Error adding event:", err);
+        setError("Failed to add event. Please check your permissions.");
+      }
+    },
+    [
+      isGapiLoaded,
+      hasGoogleToken,
+      calendarId,
+      newEventSummary,
+      date,
+      eventStartTime,
+      eventEndTime,
+      tz,
+      recurrenceFrequency,
+      recurrenceCount,
+      getEvents,
+    ]
+  );
 
-  async function handleAddEvent() {
-    if (!calendarId) return setError("Calendar ID not found.");
-    if (!isGapiLoaded || !hasGoogleToken)
-      return setError("Link Google and ensure API is ready.");
+  const handleAddEvent = useCallback(
+    async () => {
+      if (!calendarId) return setError("Calendar ID not found.");
+      if (!isGapiLoaded || !hasGoogleToken)
+        return setError("Link Google and ensure API is ready.");
 
-    const event = {
-      summary: "New Test Event",
-      start: { dateTime: new Date().toISOString(), timeZone: tz },
-      end: { dateTime: new Date(Date.now() + 3600000).toISOString(), timeZone: tz },
-    };
+      const event = {
+        summary: "New Test Event",
+        start: { dateTime: new Date().toISOString(), timeZone: tz },
+        end: {
+          dateTime: new Date(Date.now() + 3600000).toISOString(),
+          timeZone: tz,
+        },
+      };
 
-    try {
-      await window.gapi.client.calendar.events.insert({
-        calendarId,
-        resource: event,
-      });
-      await getEvents(date);
-    } catch (err) {
-      console.error("Error adding event:", err);
-      setError("Failed to add event. Please check your permissions.");
-    }
-  }
+      try {
+        await window.gapi.client.calendar.events.insert({
+          calendarId,
+          resource: event,
+        });
+        await getEvents(date);
+      } catch (err) {
+        console.error("Error adding event:", err);
+        setError("Failed to add event. Please check your permissions.");
+      }
+    },
+    [calendarId, isGapiLoaded, hasGoogleToken, tz, getEvents, date]
+  );
 
   // ---------------- Bootstrap Google client + calendar id (if linked) ----------------
   useEffect(() => {
@@ -215,10 +266,9 @@ export default function CalendarPage() {
     (async () => {
       try {
         // Google token lives under /api/auth/token
-        const tokenRes = await fetch(
-          "http://localhost:3000/api/auth/token",
-          { credentials: "include" }
-        );
+        const tokenRes = await fetch("http://localhost:3000/api/auth/token", {
+          credentials: "include",
+        });
         if (tokenRes.ok) {
           const tokenData = await tokenRes.json();
           if (tokenData.accessToken) {
@@ -230,10 +280,9 @@ export default function CalendarPage() {
             setHasGoogleToken(true);
 
             // App calendar id lives under /api/calendar/id
-            const calRes = await fetch(
-              "http://localhost:3000/api/calendar/id",
-              { credentials: "include" }
-            );
+            const calRes = await fetch("http://localhost:3000/api/calendar/id", {
+              credentials: "include",
+            });
             if (calRes.ok) {
               const data = await calRes.json();
               if (!cancelled) setCalendarID(data.calendarId);
@@ -262,12 +311,12 @@ export default function CalendarPage() {
     if (calendarId && hasGoogleToken && isGapiLoaded) {
       getEvents(date);
     }
-  }, [calendarId, hasGoogleToken, isGapiLoaded, date]);
+  }, [calendarId, hasGoogleToken, isGapiLoaded, date, getEvents]);
 
   // Habits refresh when the date or user changes
   useEffect(() => {
     if (userId) fetchHabitsForDate(isoDate);
-  }, [isoDate, userId]);
+  }, [isoDate, userId, fetchHabitsForDate]);
 
   if (booting || !user) return <div className="App py-8">Loading…</div>;
 

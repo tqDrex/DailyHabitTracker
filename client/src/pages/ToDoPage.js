@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { gapi } from "gapi-script";
 import "../style/ToDoPage.css";
 
 const API = "http://localhost:3000";
@@ -15,6 +16,18 @@ function normalizeTask(r) {
   };
 }
 
+// date helpers
+function isoDateOnly(d) {
+  // returns YYYY-MM-DD from a Date
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+    .toISOString()
+    .slice(0, 10);
+}
+function todayLocalAtMidnight() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
 export default function ToDoPage() {
   const [user, setUser] = useState(null);
   const [rows, setRows] = useState([]);
@@ -28,6 +41,13 @@ export default function ToDoPage() {
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+
+  // Google calendar bootstrap (client-side, like CalendarPage)
+  const [isGapiLoaded, setIsGapiLoaded] = useState(false);
+  const [hasGoogleToken, setHasGoogleToken] = useState(false);
+  const [calendarId, setCalendarID] = useState(null);
+
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
   // Load session/user
   useEffect(() => {
@@ -81,6 +101,109 @@ export default function ToDoPage() {
     return () => ac.abort();
   }, [user]);
 
+  // ---------- Google bootstrap (optional; skip if not linked) ----------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tokenRes = await fetch(`${API}/api/auth/token`, {
+          credentials: "include",
+        });
+        if (!tokenRes.ok) {
+          setHasGoogleToken(false);
+          return;
+        }
+        const tokenData = await tokenRes.json();
+        if (!tokenData?.accessToken) {
+          setHasGoogleToken(false);
+          return;
+        }
+        await new Promise((resolve) => gapi.load("client:auth2", resolve));
+        await window.gapi.client.load("calendar", "v3");
+        if (cancelled) return;
+        setIsGapiLoaded(true);
+        gapi.auth.setToken({ access_token: tokenData.accessToken });
+        setHasGoogleToken(true);
+
+        // get the app's calendar id
+        const calRes = await fetch(`${API}/api/calendar/id`, {
+          credentials: "include",
+        });
+        if (calRes.ok) {
+          const data = await calRes.json();
+          if (!cancelled) setCalendarID(data.calendarId || null);
+        } else if (!cancelled) {
+          setCalendarID(null);
+        }
+      } catch {
+        // Calendar is optional for ToDo; ignore bootstrap errors
+        setHasGoogleToken(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---------- Create a calendar event for a new task ----------
+  async function createCalendarEventForTask({ activityName, deadline, repeat }) {
+    try {
+      if (!isGapiLoaded || !hasGoogleToken || !calendarId) return;
+      if (!deadline) return; // only create when a deadline exists
+
+      const start = todayLocalAtMidnight();
+      const dl = new Date(deadline); // yyyy-mm-dd -> local
+      dl.setHours(0, 0, 0, 0);
+
+      // if deadline is before today, do nothing
+      if (dl.getTime() < start.getTime()) return;
+
+      // If task repeats => recurring event starting today until the deadline.
+      if (repeat && repeat !== "none") {
+        // All-day recurring event. Google UNTIL is in UTC in the form YYYYMMDDT235959Z
+        const until = new Date(dl);
+        until.setHours(23, 59, 59, 999);
+        const untilStr = until
+          .toISOString()
+          .replace(/[-:]/g, "")
+          .replace(".000", "")
+          .slice(0, 15) + "Z"; // e.g., 20250829T235959Z
+
+        const resource = {
+          summary: activityName,
+          description: "Auto-created from Daily Habit Tracker task",
+          start: { date: isoDateOnly(start) },                     // all-day
+          end: { date: isoDateOnly(new Date(start.getTime() + 86400000)) }, // end is exclusive for all-day
+          recurrence: [`RRULE:FREQ=${repeat.toUpperCase()};UNTIL=${untilStr}`],
+        };
+
+        await window.gapi.client.calendar.events.insert({
+          calendarId,
+          resource,
+        });
+      } else {
+        // Non-repeating task => one multi-day all-day event spanning today..deadline (inclusive)
+        const endExclusive = new Date(dl);
+        endExclusive.setDate(endExclusive.getDate() + 1);
+
+        const resource = {
+          summary: activityName,
+          description: "Auto-created from Daily Habit Tracker task",
+          start: { date: isoDateOnly(start) },            // all-day
+          end: { date: isoDateOnly(endExclusive) },       // exclusive
+        };
+
+        await window.gapi.client.calendar.events.insert({
+          calendarId,
+          resource,
+        });
+      }
+    } catch (e) {
+      // Don’t block task creation if calendar insert fails
+      console.warn("Calendar insert failed:", e);
+    }
+  }
+
   // Create new task
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -93,7 +216,7 @@ export default function ToDoPage() {
       activityName,
       timer: useTimer ? Number(minutes) : null,
       counter: useCounter ? Number(times) : null,
-      deadline: deadline || null,
+      deadline: deadline || null,              // expects YYYY-MM-DD
       repeat: repeat !== "none" ? repeat : null,
     };
 
@@ -110,6 +233,14 @@ export default function ToDoPage() {
         throw new Error(msg || "Failed to save task");
       }
 
+      // Try to add a calendar event that spans today..deadline (or recurring until deadline)
+      await createCalendarEventForTask({
+        activityName: payload.activityName,
+        deadline: payload.deadline,
+        repeat: payload.repeat,
+      });
+
+      // Reset form
       setShowModal(false);
       setActivityName("");
       setUseTimer(false);
@@ -119,6 +250,7 @@ export default function ToDoPage() {
       setDeadline("");
       setRepeat("none");
 
+      // Refresh task list
       const tasks = await fetchTasks();
       setRows(tasks);
     } catch (e) {
@@ -137,7 +269,7 @@ export default function ToDoPage() {
       <div className="nav-buttons">
         <button
           className="btn secondary nav-btn"
-          onClick={() => window.location.href = "/dashboard"} // change route as needed
+          onClick={() => (window.location.href = "/dashboard")}
         >
           ⬅ Back to Dashboard
         </button>
