@@ -1,0 +1,4 @@
+input {
+  display: block;   /* forces each input to a new line */
+  margin-bottom: 10px; /* adds space between them */
+}

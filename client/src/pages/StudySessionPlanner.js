@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import '../style/StudySessionPlanner.css';
 
 const API = "http://localhost:3000";
 
@@ -99,11 +100,15 @@ export default function StudySessionPlanner() {
         <div className="p-4 border rounded-xl shadow bg-gray-50">
           <h2 className="text-lg font-bold">{selectedSession.title}</h2>
           <p><strong>Subject:</strong> {selectedSession.subject}</p>
+          <br/>
           <p><strong>Duration:</strong> {selectedSession.duration} minutes</p>
+          <br/>
           <p><strong>Notes:</strong> {selectedSession.notes}</p>
+          <br/>
           <p className="text-sm text-gray-500">
             Created: {new Date(selectedSession.created_at).toLocaleString()}
           </p>
+          <br/>
         </div>
       )}
     </div>
