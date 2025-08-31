@@ -5,6 +5,7 @@ import CalendarPage from './pages/CalendarPage';
 import SignupPage  from './pages/SignUpPage';
 import ToDoPage from './pages/ToDoPage';
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+import StudySessionPlanner from "./pages/StudySessionPlanner";
 
 import TestPage from './pages/test';
 
@@ -17,6 +18,7 @@ function App() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/todo" element={<ToDoPage />} />
+        <Route path="/study" element={<StudySessionPlanner />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/test" element={<TestPage />} />
       </Routes>
