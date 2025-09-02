@@ -42,12 +42,20 @@ function addDays(d, n) {
   return x;
 }
 function startOfISOWeekUTC(d) {
+  /*
   const u = new Date(
     Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
   );
-  const dow = (u.getUTCDay() + 6) % 7;
+  //const dow = (u.getUTCDay() + 6) % 7;
+  const dow = u.getUTCDay();
   u.setUTCDate(u.getUTCDate() - dow);
   return u;
+  */
+  const date = new Date(d.getTime());
+  const day = date.getUTCDay();
+  const diff = date.getUTCDate() - day;
+  date.setUTCDate(diff);
+  return date;
 }
 function monthStartUTC(d) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
@@ -75,6 +83,9 @@ function fmtDay(d) {
 function fmtMonth(d) {
   return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
+function fmtYear(d) {
+  return d.toLocaleDateString(undefined, {year: "numeric"});
+}
 
 function computePeriod(window, offset) {
   const now = new Date();
@@ -98,11 +109,11 @@ function computePeriod(window, offset) {
   if (window === "monthly") {
     const first = addMonthsUTC(new Date(), offset);
     const next = addMonthsUTC(first, 1);
-    return { start: first, end: next, label: fmtMonth(first) };
+    return { start: first, end: next, label: fmtMonth(addMonthsUTC(first, 1)) };
   }
-  const y0 = addYearsUTC(new Date(), offset),
-    y1 = addYearsUTC(y0, 1);
-  return { start: y0, end: y1, label: String(y0.getUTCFullYear()) };
+  const y0 = new Date(now.getFullYear() + offset - 1, 0, 1);
+  const y1 = new Date(now.getFullYear() + offset, 0, 1);
+  return { start: y0, end: y1, label: fmtYear(addYearsUTC(y0, 1)) };
 }
 
 /* ---------- Rule helpers ---------- */
@@ -178,7 +189,7 @@ function taskVisibleInPeriodForMode(row, period, mode) {
 }
 
 /** In non-Daily modes, enable checkbox only if TODAY is inside the period
- *  and the habit is scheduled today (so toggling is unambiguous).
+ * and the habit is scheduled today (so toggling is unambiguous).
  */
 function canToggleTodayForPeriod(row, period) {
   const today = startOfDayLocal(new Date());
@@ -252,7 +263,10 @@ export default function CalendarPage() {
   // Mode & offset
   const [mode, setMode] = useState("daily"); // daily | weekly | monthly | yearly
   const [offset, setOffset] = useState(0);
-  const period = useMemo(() => computePeriod(mode, offset), [mode, offset]);
+  const period = useMemo(() => {
+    console.log("Current offset:", offset);
+    return computePeriod(mode, offset)
+  }, [mode, offset]);
 
   // UI
   const [error, setError] = useState(null);
@@ -262,6 +276,7 @@ export default function CalendarPage() {
   const [date, setDate] = useState(new Date());
   const tz = safeTz();
   const isoDate = useMemo(() => date.toISOString().slice(0, 10), [date]);
+  const [activeStartDate, setActiveStartDate] = useState(new Date());
 
   const API = "http://localhost:3000";
   const today = useMemo(() => startOfDayLocal(new Date()), []);
@@ -282,9 +297,14 @@ export default function CalendarPage() {
     );
   }
   function yearsDiffFromToday(targetDate) {
+    console.log("yearsDiffFromToday called:");
     const t = new Date(targetDate);
     const now = new Date();
-    return t.getUTCFullYear() - now.getUTCFullYear();
+    console.log("  Target Year:", t.getUTCFullYear());
+    console.log("  Current Year:", now.getUTCFullYear());
+    const diff = t.getUTCFullYear() - now.getUTCFullYear();
+    console.log("  Calculated Difference:", diff);
+    return diff
   }
 
   /* ----- Session ----- */
@@ -517,21 +537,59 @@ export default function CalendarPage() {
     mode === "daily"
       ? date
       : mode === "weekly"
+      ? [startOfISOWeekUTC(date), addDays(startOfISOWeekUTC(date), 6)]
+      : date;
+      /*
       ? [period.start, addDays(period.start, 6)]
       : period.start; // a date inside the month/year tile
+      */
 
   const calActiveStartDate =
     mode === "daily" || mode === "weekly"
-      ? new Date(period.start.getFullYear(), period.start.getMonth(), 1)
+      ? date
       : mode === "monthly"
-      ? new Date(period.start.getFullYear(), 0, 1)
+      ? new Date(addMonthsUTC(new Date(), offset))
+      : mode === "yearly"
+      ? new Date(addYearsUTC(new Date(), offset))
       : new Date(period.start.getFullYear() - (period.start.getFullYear() % 10), 0, 1);
+
+  const handleDateChange = (newDate, newView) => {
+    console.log("handleDateChange triggered!");
+    console.log("Clicked Date:", newDate);
+    console.log("New View:", newView);
+    console.log("Current Mode:", mode);
+
+    if (Array.isArray(newDate)) {
+      setDate(newDate[0]);
+    } else {
+      setDate(newDate);
+    }
+    if (newView === "month") {
+      if (mode === "weekly") {
+        setOffset(weeksDiffFromToday(newDate));
+      } else {
+        setMode("daily");
+        setOffset(0);
+      }
+    } else if (newView === "year") {
+      setMode("monthly");
+      setOffset(monthsDiffFromToday(newDate));
+      //setOffset(0);
+    } else if (newView === "decade") {
+      console.log("CLICKED ON A DECADE VIEW. newView is 'decade'.");
+      console.log("Selected date:", newDate.toISOString());
+      setMode("yearly");
+      setOffset(yearsDiffFromToday(newDate));
+      //setOffset(0);
+    }
+  };
 
   const handleClickDay = (d) => {
     if (mode === "daily") {
       setDate(d);
     } else if (mode === "weekly") {
       setOffset(weeksDiffFromToday(d));
+      setDate(d);
     } else {
       // Clicking a day in other modes goes to day view for that date
       setMode("daily");
@@ -544,14 +602,96 @@ export default function CalendarPage() {
   };
   const handleClickMonth = (d) => {
     if (mode === "monthly") {
+      setDate(d);
       setOffset(monthsDiffFromToday(d));
     }
   };
   const handleClickYear = (d) => {
+    console.log("handleClickYear called!");
+    console.log("Clicked Date (d):", d);
     if (mode === "yearly") {
-      setOffset(yearsDiffFromToday(d));
+      const activeYear = calActiveStartDate.getFullYear();
+      const clickedYear = d.getFullYear();
+      console.log(`Clicked year: ${clickedYear}. Active start year: ${activeYear}.`);
+      const newOffset = offset + (clickedYear - activeYear);
+      console.log(`Old offset: ${offset}. New offset will be: ${newOffset}.`);
+      //console.log("New offset calculated in handleClickYear:", newOffset);
+      setOffset(newOffset);
+      setDate(d);
     }
   };
+  /*
+  const handleActiveStartDateChange = ({ activeStartDate, view }) => {
+    console.log("handleActiveStartDateChange called!");
+    console.log("  activeStartDate:", activeStartDate);
+    console.log("  view:", view);
+    console.log("  Current mode:", mode);
+    let newOffset = 0;
+    const now = new Date();
+    if (mode === "daily" || mode === "weekly") {
+      setDate(activeStartDate);
+    } else {
+      if (view === "month") {
+        newOffset = monthsDiffFromToday(activeStartDate);
+      } else if (view === "year") {
+        const diffYears = activeStartDate.getFullYear() - new Date(addMonthsUTC(new Date(), offset)).getFullYear();
+        newOffset = offset + diffYears * 12
+      } else if (view === "decade") {
+        const diffYears = activeStartDate.getFullYear() - new Date(addYearsUTC(new Date(), offset)).getFullYear();
+        console.log("  Diff in years (yearly mode):", diffYears);
+        console.log("  Current offset:", offset);
+        newOffset = offset + diffYears;
+        console.log("  New offset from onActiveStartDateChange:", newOffset);
+      }
+      setOffset(newOffset);
+    }
+  };
+  */
+ const handleActiveStartDateChange = ({ activeStartDate, view }) => {
+    // These logs will now show a single, clean state update
+    console.log("handleActiveStartDateChange called!");
+    console.log("  activeStartDate:", activeStartDate);
+    console.log("  view:", view);
+    console.log("  Current mode:", mode);
+
+    if (mode === "daily" || mode === "weekly") {
+      setDate(activeStartDate);
+    } else if (mode === "monthly" && view === "year") {
+      const diffMonths = (activeStartDate.getFullYear() - date.getFullYear()) * 12 + (activeStartDate.getMonth() - date.getMonth());
+      setOffset(offset + diffMonths);
+    } else if (mode === "yearly") {
+      // This is the correct logic for yearly mode.
+      if (view === "decade") {
+        // This handles arrow clicks
+        const diffYears = activeStartDate.getFullYear() - new Date(addYearsUTC(new Date(), offset)).getFullYear();
+        setOffset(offset + diffYears);
+      } else if (view === "year") {
+        // This handles clicking on a specific year
+        const diffYears = activeStartDate.getFullYear() - new Date(addYearsUTC(new Date(), offset)).getFullYear();
+        setOffset(offset + diffYears);
+      }
+    }
+  };
+  // Function to handle arrow clicks based on the current mode
+  const handleArrowClick = (direction) => {
+    console.log("Arrow clicked. Current mode:", mode, "Direction:", direction);
+
+    if (mode === "daily") {
+      setOffset(o => o + direction);
+    } else if (mode === "weekly") {
+      setOffset(o => o + direction);
+    } else if (mode === "monthly") {
+      // Add a console.log here to see the value before and after the update
+      setOffset(o => {
+        const newOffset = o + (direction * 1); // Change this to a multiplier of 12 for years
+        console.log("In monthly mode. Old offset:", o, "New offset:", newOffset);
+        return newOffset;
+      });
+    } else if (mode === "yearly") {
+      setOffset(o => o + (direction * 10));
+    }
+  };
+
 
   if (booting || !user) return <div className="App py-8">Loading…</div>;
 
@@ -629,14 +769,14 @@ export default function CalendarPage() {
               <div className="insights__arrows">
                 <button
                   className="arrow"
-                  onClick={() => setOffset((o) => o - 1)}
+                  onClick={() => handleArrowClick(-1)}
                   aria-label="Previous"
                 >
                   ←
                 </button>
                 <button
                   className="arrow"
-                  onClick={() => setOffset((o) => o + 1)}
+                  onClick={() => handleArrowClick(1)}
                   aria-label="Next"
                 >
                   →
@@ -660,11 +800,19 @@ export default function CalendarPage() {
               <Calendar
                 view={calView}
                 value={calValue}
+                //value={date}
+                //onChange={setDate}
+                //onChange={handleDateChange}
                 selectRange={mode === "weekly"} /* highlight whole week */
                 activeStartDate={calActiveStartDate}
+                //activeStartDate={activeStartDate}
+                onActiveStartDateChange={handleActiveStartDateChange}
+                //minDate={new Date(1900, 0, 1)}
+                //maxDate={new Date(2100, 11, 31)}
+                //maxDetail="century"
                 onClickDay={handleClickDay}
                 onClickMonth={handleClickMonth}
-                onClickYear={handleClickYear}
+                //onClickYear={handleClickYear}
               />
             </div>
           </div>
