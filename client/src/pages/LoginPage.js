@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import "../style/LoginSignup.css";
 
 /* -------- API base (CRA or Vite) -------- */
-const API = process.env.REACT_APP_API_LINK;
+const RAW_API = process.env.REACT_APP_API_LINK;
 
 
 const API_BASE = (RAW_API || window.location.origin).replace(/\/+$/, "");

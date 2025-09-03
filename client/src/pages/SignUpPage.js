@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import "../style/LoginSignup.css";
 
 /* ---------- API base (handles Vite or CRA) ---------- */
-const API = process.env.REACT_APP_API_LINK;
+const RAW_API = process.env.REACT_APP_API_LINK;
 
 
 const API_BASE = (RAW_API || window.location.origin).replace(/\/+$/, "");
