@@ -38,6 +38,7 @@ function LoginPage() {
   }
 
   function handleGoogleLogin() {
+    console.log("API_URL =", API);
     window.location.href = `${API}/auth/google`;
   }
 
@@ -66,7 +67,7 @@ function LoginPage() {
         fontSize: '0.85em',
         color: '#666'
       }}>
-        Your username is your email without @gmail.com.
+        Your username is your email without @gmail.com. 
       </small>
       <br />
 
