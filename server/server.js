@@ -7,11 +7,7 @@ const cookieParser = require("cookie-parser");
 const passport = require("passport");
 const session = require("express-session");
 
-const user = process.env.user;
-const host = process.env.host;
-const database = process.env.database;
-const password = process.env.password;
-const port = process.env.port;
+const env = require("./env.json");
 
 // Local modules
 const CONFIG = require("./utils/config");
