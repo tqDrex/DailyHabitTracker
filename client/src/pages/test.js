@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { gapi } from 'gapi-script';
 import Event from '../Components/Event.js';
 
+const API = env.process.API_LINK;
+
 function Test() {
     const [events, setEvents] = useState([]);
     const [calendarId, setCalendarID] = useState(null);
@@ -153,7 +155,7 @@ function Test() {
         const checkAuthAndFetchCalendarID = async () => {
             try {
                 console.log("Fetching user...");
-                const authResponse = await fetch('http://localhost:3000/api/me', {
+                const authResponse = await fetch(`${API}/api/me`, {
                     credentials: 'include'
                 });
                 if (!authResponse.ok) {
@@ -161,7 +163,7 @@ function Test() {
                 }
                 setIsGoogleSignedIn(true);
 
-                const tokenResponse = await fetch ('http://localhost:3000/api/auth/token', {
+                const tokenResponse = await fetch (`${API}/api/auth/token`, {
                     credentials: 'include'
                 });
                 const tokenData = await tokenResponse.json();
@@ -178,7 +180,7 @@ function Test() {
                 });
 
                 console.log("Fetching calendar ID...");
-                const response = await fetch('http://localhost:3000/api/calendar/id', {
+                const response = await fetch(`${API}/api/calendar/id`, {
                     credentials: 'include'
                 });
                 if (!response.ok) {

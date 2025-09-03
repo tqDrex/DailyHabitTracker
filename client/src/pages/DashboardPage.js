@@ -4,6 +4,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import "../style/Dashboard.css";
 import InsightsPanel from "../Components/InsightsPanel"; // ← donuts panel
 
+const API = env.process.API_LINK;
+
 /* ---------- Helpers ---------- */
 function getUserIanaTz() {
   try {
@@ -96,7 +98,7 @@ export default function DashboardPage() {
     const ac = new AbortController();
     (async () => {
       try {
-        const res = await fetch("http://localhost:3000/api/me", {
+        const res = await fetch(`${API}/api/me`, {
           credentials: "include",
           signal: ac.signal,
         });
@@ -116,12 +118,12 @@ export default function DashboardPage() {
       if (!user?.id) return;
       const [curRes, bestRes] = await Promise.all([
         fetch(
-          `http://localhost:3000/streaks/current?userId=${user.id}&tz=${encodeURIComponent(
+          `${API}/streaks/current?userId=${user.id}&tz=${encodeURIComponent(
             tz
           )}`,
           { credentials: "include", signal }
         ),
-        fetch(`http://localhost:3000/streaks/best?userId=${user.id}`, {
+        fetch(`${API}/streaks/best?userId=${user.id}`, {
           credentials: "include",
           signal,
         }),
@@ -148,7 +150,7 @@ export default function DashboardPage() {
     async (signal) => {
       if (!user?.id) return;
       const res = await fetch(
-        `http://localhost:3000/stats/completion/daily?userId=${user.id}&tz=${encodeURIComponent(
+        `${API}/stats/completion/daily?userId=${user.id}&tz=${encodeURIComponent(
           tz
         )}`,
         { credentials: "include", signal }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import '../style/LoginSignup.css';
 
-const API = 'http://localhost:3000'; // backend
+const API = env.process.API_LINK; // backend
 
 function SignupPage() {
   const [checking, setChecking] = useState(true);

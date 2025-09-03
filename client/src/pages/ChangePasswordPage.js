@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API = "http://localhost:3000";
+const API = env.process.API_LINK;
 
 export default function ChangePasswordPage() {
   const navigate = useNavigate();

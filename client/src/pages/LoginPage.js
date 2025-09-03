@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../style/LoginSignup.css';
 
-const API = 'http://localhost:3000'; // backend
+const API = env.process.API_LINK; // backend
 
 function LoginPage() {
   const [username, setUsername] = useState('');

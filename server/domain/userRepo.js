@@ -16,9 +16,9 @@ class UserRepository {
     const {
       user,
       password = undefined,
-      host = "localhost",
-      port = 5432,
-      dbName = "user_database",
+      host = env.process.host,
+      port = env.process.port,
+      dbName = env.process.database,
     } = cfg;
 
     const admin = new Client({ user, password, host, port, database: "postgres" });

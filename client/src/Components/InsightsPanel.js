@@ -1,7 +1,7 @@
 // src/Components/InsightsPanel.js
 import { useEffect, useMemo, useState } from "react";
 
-const API = "http://localhost:3000";
+const API = env.process.API_LINK;
 
 /* ----------------------------- date helpers ----------------------------- */
 function tz() {
