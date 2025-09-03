@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import '../style/StudySessionPlanner.css';
 
-const API = process.env.VITE_API_LINK;
+const API = process.env.REACT_APP_API_LINK;
 
 export default function StudySessionPlanner() {
   const [sessions, setSessions] = useState([]);

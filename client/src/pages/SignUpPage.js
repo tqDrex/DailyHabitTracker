@@ -2,13 +2,8 @@ import React, { useEffect, useState } from "react";
 import "../style/LoginSignup.css";
 
 /* ---------- API base (handles Vite or CRA) ---------- */
-const RAW_API =
-  // Vite
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_LINK) ||
-  // CRA
-  (typeof process !== "undefined" && process.env?.REACT_APP_API_LINK) ||
-  // fallback to same-origin
-  "";
+const API = process.env.REACT_APP_API_LINK;
+
 
 const API_BASE = (RAW_API || window.location.origin).replace(/\/+$/, "");
 const buildUrl = (p) => new URL(String(p).replace(/^\/+/, "/"), API_BASE).toString();

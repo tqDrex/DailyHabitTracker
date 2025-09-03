@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { gapi } from 'gapi-script';
 import Event from '../Components/Event.js';
 
-const API = process.env.VITE_API_LINK;
+const API = process.env.REACT_APP_API_LINK;
 
 function Test() {
     const [events, setEvents] = useState([]);

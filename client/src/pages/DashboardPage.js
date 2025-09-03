@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import "../style/Dashboard.css";
 import InsightsPanel from "../Components/InsightsPanel"; // ← donuts panel
 
-const API = process.env.VITE_API_LINK;
+const API = process.env.REACT_APP_API_LINK;
 
 /* ---------- Helpers ---------- */
 function getUserIanaTz() {

@@ -4,7 +4,7 @@ import { gapi } from "gapi-script";
 import { useNavigate, useLocation } from "react-router-dom";
 import "../style/ToDoPage.css";
 
-const API = process.env.VITE_API_LINK;
+const API = process.env.REACT_APP_API_LINK;
 
 /* ---------- helpers ---------- */
 function normalizeTask(r) {
