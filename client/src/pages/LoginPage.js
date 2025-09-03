@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../style/LoginSignup.css';
 
-const API = process.env.VITE_API_LINK; // backend
+const API = import.meta.env.VITE_API_LINK;
 
 function LoginPage() {
   const [username, setUsername] = useState('');
@@ -38,7 +38,7 @@ function LoginPage() {
   }
 
   function handleGoogleLogin() {
-    console.log("API_URL =", API);
+    console.log("API_URL =", {API});
     window.location.href = `${API}/auth/google`;
   }
 
