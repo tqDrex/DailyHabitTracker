@@ -202,4 +202,129 @@
   border-radius: 999px;
 }
 
+/* --- Insights / Donuts --- */
+.insights__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.insights__switch {
+  display: inline-flex;
+  background: #f3f4f6;
+  border-radius: 999px;
+  padding: 4px;
+}
+.seg {
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #6b7280;
+}
+.seg--on {
+  background: white;
+  color: #111827;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
+.donut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.donut {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.donut__labels {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.donut__title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.donut__sub {
+  font-size: 12px;
+}
+
+/* --- Insights panel --- */
+.insights__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.insights__title { display: flex; flex-direction: column; gap: 2px; }
+
+.insights__controls { display: flex; align-items: center; gap: 10px; }
+.insights__switch {
+  display: inline-flex;
+  background: #f3f4f6;
+  border-radius: 999px;
+  padding: 4px;
+}
+.seg {
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #6b7280;
+}
+.seg--on {
+  background: white;
+  color: #111827;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+
+.insights__arrows { display: inline-flex; gap: 6px; }
+.arrow {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.arrow:hover { background: #f9fafb; }
+
+/* --- Donuts --- */
+.donut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+.donut {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+  background: #fff;
+}
+.donut__labels { min-width: 0; display: flex; flex-direction: column; }
+.donut__title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.donut__sub { font-size: 12px; }
+
 

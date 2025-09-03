@@ -1,0 +1,135 @@
+/* ==== Clean card look & nav layout ==== */
+
+/* Card */
+.react-calendar {
+  width: 100%;
+  max-width: 420px;                /* compact card like the mock */
+  background: #fff;
+  border: 1px solid #eceff3;
+  border-radius: 14px;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.06);
+  padding: 14px;
+  line-height: 1.2;
+  font-size: 15px;                 /* slightly smaller for a neat feel */
+}
+
+/* Single-row navigation with centered month label */
+.react-calendar__navigation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.react-calendar__navigation__label {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+  letter-spacing: .2px;
+  border: 1px solid #e6e9ef;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+/* Hide the double arrows (« ») like the mock */
+.react-calendar__navigation__prev2-button,
+.react-calendar__navigation__next2-button {
+  display: none;
+}
+
+/* Prev/Next chevrons */
+.react-calendar__navigation button {
+  background: #fff;
+  border: 1px solid #e6e9ef;
+  border-radius: 10px;
+  padding: 8px 10px;               /* bigger click target */
+  min-width: 40px;
+  color: #333;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease;
+}
+.react-calendar__navigation button:enabled:hover {
+  background: #f6f7fb;
+  border-color: #cfd6e4;
+  transform: translateY(-1px);
+}
+
+/* Weekday header */
+.react-calendar__month-view__weekdays {
+  text-transform: none;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+.react-calendar__month-view__weekdays abbr { text-decoration: none; }
+
+/* Day grid: comfortable tap targets */
+.react-calendar__tile {
+  height: 42px;
+  border-radius: 10px;
+  transition: background .15s ease, transform .06s ease, color .15s ease;
+  color: #374151;
+}
+.react-calendar__month-view__days__day--weekend { color: #ef4444; } /* subtle red like mock */
+
+/* Hover */
+.react-calendar__tile:enabled:hover {
+  background: #f6f7fb;
+  transform: translateY(-1px);
+}
+
+/* Today: soft outline badge */
+.react-calendar__tile--now {
+  position: relative;
+  outline: 2px dashed #a5b4fc;     /* soft indigo like many mocks */
+  outline-offset: 2px;
+}
+
+/* Selected day: pill style */
+.react-calendar__tile--active {
+  background: #5865f2;             /* calm purple/indigo */
+  color: #fff !important;
+  border-radius: 12px;
+  box-shadow: 0 6px 14px rgba(88,101,242,0.25);
+}
+
+/* Month/Year (year/decade views) tiles aligned with style */
+.react-calendar__year-view .react-calendar__tile,
+.react-calendar__decade-view .react-calendar__tile,
+.react-calendar__century-view .react-calendar__tile {
+  height: 48px;
+  border-radius: 10px;
+}
+
+/* Footer-like spacing below calendar */
+.react-calendar + * {
+  margin-top: 16px;
+}
+
+/* ===== Buttons spacing (Create / Test) ===== */
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 12px;
+  margin-right: 10px;              /* space between buttons */
+  transition: background-color .2s ease, transform .05s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: #22c55e; color: #fff; }
+.btn-primary:hover { background: #16a34a; }
+.btn-secondary { background: #5865f2; color: #fff; }
+.btn-secondary:hover { background: #4752d0; }
+
+/* Optional: center the calendar/card on the page like the mock */
+.calendar-container {
+  max-width: 480px;
+  margin: 40px auto;
+  padding: 1.25rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+}

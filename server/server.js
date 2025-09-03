@@ -19,7 +19,7 @@ const AuthService = require("./services/authService");
 const EmailVerificationService = require("./services/emailVerificationService");
 const PasswordService = require("./services/passwordService");
 
-// Routes (DI factories)
+// Route factories (DI)
 const authRoutes = require("./routes/auth");
 const localRoutes = require("./routes/local");
 const buildAccountRoutes = require("./routes/account");
@@ -50,7 +50,7 @@ const buildAccountRoutes = require("./routes/account");
   app.use(express.json());
   app.use(cookieParser());
 
-  // Optional session (Passport uses this; your app auth uses a custom cookie)
+  // Session (needed by Passport)
   app.use(
     session({
       secret: CONFIG.SESSION_SECRET,
@@ -62,30 +62,32 @@ const buildAccountRoutes = require("./routes/account");
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Google OAuth strategy (shares DI instances)
+  // Google OAuth strategy
   require("./passport")({ CONFIG, users, db, mailer, auth });
 
   // ----- Auth gate for protected routes -----
   const requireAuth = buildRequireAuth({ auth, users });
 
-  // Routers that depend on userRepo
+  // Domain routers (DI)
   const streaksRouter = require("./routes/streaks")(users);
-  const habitsRouter = require("./routes/habits")(users);
-  const tasksRouter = require("./routes/tasks")(users); // if you have this route module
+  const habitsRouter  = require("./routes/habits")(users);
+  const tasksRouter   = require("./routes/tasks")(users); // if you’ve implemented tasks
+  const statsRouter   = require("./routes/stats")(users);
 
-  // Mount protected domain routes
+  // Mount protected routes
   app.use("/streaks", requireAuth, streaksRouter);
-  app.use("/habits", requireAuth, habitsRouter);
-  app.use("/tasks", requireAuth, tasksRouter);
+  app.use("/habits",  requireAuth, habitsRouter);
+  app.use("/tasks",   requireAuth, tasksRouter);
+  app.use("/stats",   requireAuth, statsRouter);
 
   // Auth / account routes
   app.use(authRoutes({ CONFIG, users, auth, emailVerify, mailer }));
   if (CONFIG.AUTH_ALLOW_LOCAL) app.use(localRoutes({ users, auth }));
 
-  // Public ping
+  // Public test endpoint
   app.get("/public", (_req, res) => res.send("A public message\n"));
 
-  // Adapt repo to PasswordService and mount /change-password
+  // Password change route
   const passwordService = new PasswordService({
     users: {
       getById: async (id) => {
@@ -99,11 +101,13 @@ const buildAccountRoutes = require("./routes/account");
   });
   app.use(buildAccountRoutes({ requireAuth, passwordService }));
 
-  // ----- Errors -----
+  // ----- Error handler -----
   app.use((err, _req, res, _next) => {
     console.error(err);
     if (res.headersSent) return;
-    res.status(err.status || 500).json({ error: err.message || "Internal Server Error" });
+    res
+      .status(err.status || 500)
+      .json({ error: err.message || "Internal Server Error" });
   });
 
   // ----- Listen -----

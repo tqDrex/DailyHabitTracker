@@ -105,7 +105,7 @@
 }
 
 .input {
-  width: 100%;
+  width: 90%;
   min-height: 44px;
   border-radius: 10px;
   border: 1px solid #d9dbe1;
@@ -185,3 +185,154 @@
   font-size: 14px;
   padding: 8px 14px;
 }
+
+.field-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+  margin: 4px 2px;
+}
+.field-label.sm { font-weight: 500; color: #4b5563; }
+
+.divider {
+  height: 1px;
+  border: 0;
+  background: #edf0f5;
+  margin: 2px 0 8px 0;
+}
+
+/* --- Modal form, Asana-like layout --- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-inline .control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.label {
+  font-size: 0.9rem;
+  color: #475569;           /* slate-600 */
+  font-weight: 600;
+}
+
+.input {
+  border: 1px solid #e2e8f0; /* slate-200 */
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.input:focus {
+  border-color: #94a3b8;     /* slate-400 */
+  box-shadow: 0 0 0 3px rgba(148,163,184,0.2);
+}
+
+.input-inline {
+  width: 140px;
+}
+
+.select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #475569 50%),
+    linear-gradient(135deg, #475569 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(1em + 2px),
+    calc(100% - 11px) calc(1em + 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* Modal shell you already had */
+.modal {
+  width: 560px;                 /* a bit wider for the two-line fields */
+  max-width: 92vw;
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px 20px 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+
+.modal-title {
+  margin: 6px 4px 14px;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* Buttons (reuse your existing classes if present) */
+.btn.primary {
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+.btn.secondary {
+  background: #e2e8f0;
+  color: #0f172a;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+.mini-progress {
+  height: 8px;
+  background: #eee;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.mini-progress__fill {
+  height: 100%;
+  background: #4f46e5; /* same accent as your buttons */
+}
+
+.progress-actions .chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.chip-btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip-btn:disabled { opacity: 0.5; cursor: default; }
+.chip-input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.stack { display: flex; flex-direction: column; gap: 6px; }
+.small { font-size: 12px; }
+.mt-8 { margin-top: 8px; }
+
+
