@@ -289,7 +289,6 @@ export default function DashboardPage() {
           <NavButton to="/dashboard">Dashboard</NavButton>
           <NavButton to="/todo">To-Do</NavButton>
           <NavButton to="/calendar">Calendar</NavButton>
-          <NavButton to="/test">Calendar</NavButton>
           <NavButton to="/study">Study Session Planner</NavButton>
 
         </nav>
