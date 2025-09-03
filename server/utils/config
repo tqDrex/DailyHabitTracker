@@ -1,6 +1,4 @@
 // utils/config.js
-require("dotenv").config();
-
 module.exports = {
   HOSTNAME: process.env.HOSTNAME || "localhost",
   PORT: Number(process.env.PORT || 3000),

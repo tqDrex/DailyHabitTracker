@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import "../style/Dashboard.css";
 import InsightsPanel from "../Components/InsightsPanel"; // ← donuts panel
 
-const API = env.process.API_LINK;
+const API = process.env.API_LINK;
 
 /* ---------- Helpers ---------- */
 function getUserIanaTz() {
@@ -206,7 +206,7 @@ export default function DashboardPage() {
 
   const handleLogout = async () => {
     try {
-      await fetch("http://localhost:3000/logout", {
+      await fetch(`${API}/logout`, {
         method: "POST",
         credentials: "include",
       });
@@ -224,7 +224,7 @@ export default function DashboardPage() {
     }
 
     try {
-      const res = await fetch("http://localhost:3000/api/link-email", {
+      const res = await fetch(`${API}/api/link-email`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

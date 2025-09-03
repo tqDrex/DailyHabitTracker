@@ -278,7 +278,7 @@ export default function CalendarPage() {
   const isoDate = useMemo(() => date.toISOString().slice(0, 10), [date]);
   const [activeStartDate, setActiveStartDate] = useState(new Date());
 
-  const API = env.process.API_LINK;
+  const API = process.env.API_LINK;
   const today = useMemo(() => startOfDayLocal(new Date()), []);
   const todayIso = useMemo(() => today.toISOString().slice(0, 10), [today]);
 
