@@ -1,17 +1,9 @@
 // server.js
-require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const passport = require("passport");
 const session = require("express-session");
-
-const user = process.env.user;
-const host = process.env.host;
-const database = process.env.database;
-const password = process.env.password;
-const port = process.env.port;
 
 // Local modules
 const CONFIG = require("./utils/config");
@@ -30,7 +22,7 @@ const buildAccountRoutes = require("./routes/account");
 
 (async function main() {
   // ----- Infra -----
-  const db = new Database(env);
+  const db = new Database();
   await db.connect();
 
   const mailer = new Mailer();
