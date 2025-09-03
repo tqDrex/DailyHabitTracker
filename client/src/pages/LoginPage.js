@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../style/LoginSignup.css';
 
-const API = process.env.API_LINK; // backend
+const API = process.env.VITE_API_LINK; // backend
 
 function LoginPage() {
   const [username, setUsername] = useState('');
