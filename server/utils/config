@@ -1,27 +1,40 @@
 // utils/config.js
+const env = process.env;
+
+const isProd = env.NODE_ENV === "production";
+// Set this to "true" on Railway if frontend & backend are on different subdomains
+const crossSite = env.CROSS_SITE_COOKIES === "true";
+
 module.exports = {
-  HOSTNAME: process.env.HOSTNAME || "localhost",
-  PORT: Number(process.env.PORT || 3000),
-  FRONTEND_URL: process.env.VITE_FRONTEND_URL || "http://localhost:3001",
+  PORT: Number(env.PORT || 3000),
+
+  // Frontend origin (your React app URL)
+  FRONTEND_URL: env.FRONTEND_URL || "http://localhost:3001",
+
+  // Must EXACTLY match the Google OAuth redirect URI you set in Google Cloud
   OAUTH_CALLBACK_URL:
-    process.env.VITE_OAUTH_CALLBACK_URL || "http://localhost:3000/auth/google/callback",
-  AUTH_ALLOW_LOCAL: process.env.AUTH_ALLOW_LOCAL !== "false",
+    env.OAUTH_CALLBACK_URL || "http://localhost:3000/auth/google/callback",
+
+  AUTH_ALLOW_LOCAL: env.AUTH_ALLOW_LOCAL !== "false",
+
   COOKIE: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    secure: isProd,                 // Railway is HTTPS
+    sameSite: crossSite ? "none" : "lax", // cross-site cookies need "none"
   },
-  VERIFY_CODE_TTL_MIN: Number(process.env.VERIFY_CODE_TTL_MIN || 15),
+
   SMTP: {
-    HOST: process.env.SMTP_HOST,
-    USER: process.env.SMTP_USER,
-    PASS: process.env.SMTP_PASS,
-    PORT: Number(process.env.SMTP_PORT || 587),
-    FROM: process.env.SMTP_FROM || process.env.SMTP_USER,
+    HOST: env.SMTP_HOST,
+    USER: env.SMTP_USER,
+    PASS: env.SMTP_PASS,
+    PORT: Number(env.SMTP_PORT || 587),
+    FROM: env.SMTP_FROM || env.SMTP_USER,
   },
+
   GOOGLE: {
-    CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID,
-    CLIENT_SECRET: process.env.VITE_GOOGLE_CLIENT_SECRET,
+    CLIENT_ID: env.GOOGLE_CLIENT_ID,
+    CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
   },
-  SESSION_SECRET: process.env.VITE_SESSION_SECRET
+
+  SESSION_SECRET: env.SESSION_SECRET,
 };

@@ -1,45 +1,59 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import '../style/LoginSignup.css';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import "../style/LoginSignup.css";
 
-const API = import.meta.env.VITE_API_LINK;
+/* -------- API base (CRA or Vite) -------- */
+const RAW_API =
+  // Vite
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_LINK) ||
+  // CRA
+  (typeof process !== "undefined" && process.env?.REACT_APP_API_LINK) ||
+  // fallback to same-origin
+  "";
 
-function LoginPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+const API_BASE = (RAW_API || window.location.origin).replace(/\/+$/, "");
+const buildUrl = (p) => new URL(String(p).replace(/^\/+/, "/"), API_BASE).toString();
+
+export default function LoginPage() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   async function handleLogin(e) {
     e.preventDefault();
-    setError('');
+    setError("");
     setSubmitting(true);
 
     try {
-      const res = await fetch(`${API}/login`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+      const res = await fetch(buildUrl("/login"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
       });
 
       if (res.ok) {
-        navigate('/dashboard');
+        navigate("/dashboard");
       } else {
-        setError('Invalid credentials');
+        const msg = await safeText(res);
+        setError(msg || "Invalid credentials");
       }
     } catch (err) {
-      console.log('Fetch error:', err);
-      setError('Something went wrong');
+      console.error("Fetch error:", err);
+      setError("Something went wrong");
     } finally {
       setSubmitting(false);
     }
   }
 
   function handleGoogleLogin() {
-    console.log("API_URL =", {API});
-    window.location.href = `${API}/auth/google`;
+    const authUrl = buildUrl("/auth/google");
+    console.log("DEBUG: API_BASE =", API_BASE);
+    console.log("DEBUG: authUrl  =", authUrl);
+    // Full page navigation (don’t use <Link> for OAuth)
+    window.location.assign(authUrl);
   }
 
   return (
@@ -50,44 +64,48 @@ function LoginPage() {
         type="text"
         placeholder="Username"
         value={username}
-        onChange={e => setUsername(e.target.value)}
+        onChange={(e) => setUsername(e.target.value)}
         required
-      /><br />
+      />
+      <br />
 
       <input
         type="password"
         placeholder="Password"
         value={password}
-        onChange={e => setPassword(e.target.value)}
+        onChange={(e) => setPassword(e.target.value)}
         required
       />
-      <small style={{
-        display: 'block',
-        marginTop: '4px',
-        fontSize: '0.85em',
-        color: '#666'
-      }}>
-        Your username is your email without @gmail.com. 
+      <small style={{ display: "block", marginTop: 4, fontSize: "0.85em", color: "#666" }}>
+        Your username is your email without @gmail.com.
       </small>
       <br />
 
       <button type="submit" disabled={submitting}>
-        {submitting ? 'Logging in…' : 'Login'}
+        {submitting ? "Logging in…" : "Login"}
       </button>
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-      <div style={{ margin: '12px 0', textAlign: 'center' }}>— or —</div>
+      <div style={{ margin: "12px 0", textAlign: "center" }}>— or —</div>
 
       <button type="button" onClick={handleGoogleLogin} className="google-btn">
         Continue with Google
       </button>
 
       <p style={{ marginTop: 12 }}>
-        Don't have an account? <a href="/signup">Sign up</a>
+        Don&apos;t have an account? <a href="/signup">Sign up</a>
       </p>
     </form>
   );
 }
 
-export default LoginPage;
+/* -------- helpers -------- */
+async function safeText(res) {
+  try {
+    const t = await res.text();
+    return t && t.length ? t : "";
+  } catch {
+    return "";
+  }
+}
