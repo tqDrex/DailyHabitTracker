@@ -4,6 +4,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const passport = require("passport");
 const session = require("express-session");
+const pgSession = require("connect-pg-simple")(session); // ✅ use a real session store
 
 // Local modules
 const CONFIG = require("./utils/config");
@@ -37,21 +38,37 @@ const buildAccountRoutes = require("./routes/account");
   // ----- App -----
   const app = express();
 
+  // Railway sits behind a proxy; this is REQUIRED for secure cookies to work
+  app.set("trust proxy", 1); // ✅
+
+  // CORS for your SPA origin
   app.use(
     cors({
-      origin: CONFIG.FRONTEND_URL,
+      origin: CONFIG.FRONTEND_URL, // e.g. https://your-frontend.up.railway.app
       credentials: true,
+      optionsSuccessStatus: 204,
     })
   );
+
   app.use(express.json());
   app.use(cookieParser());
 
-  // Session (needed by Passport)
+  // ---------- Sessions (Passport needs this) ----------
+  // Use Postgres-backed sessions instead of MemoryStore (prod safe)
   app.use(
     session({
-      secret: CONFIG.SESSION_SECRET,
+      store: new pgSession({
+        conString: process.env.DATABASE_URL, // same Postgres your app uses
+        createTableIfMissing: true,
+        tableName: "session", // optional
+      }),
+      name: "sid", // optional cookie name
+      secret: CONFIG.SESSION_SECRET, // ✅ fixes "req.secret" deprecation
       resave: false,
       saveUninitialized: false,
+      cookie: {
+        ...CONFIG.COOKIE, // e.g. { httpOnly:true, secure:true, sameSite:"none"|"lax", maxAge:... }
+      },
     })
   );
 
@@ -66,21 +83,22 @@ const buildAccountRoutes = require("./routes/account");
 
   // Domain routers (DI)
   const streaksRouter = require("./routes/streaks")(users);
-  const habitsRouter  = require("./routes/habits")(users);
-  const tasksRouter   = require("./routes/tasks")(users); // if you’ve implemented tasks
-  const statsRouter   = require("./routes/stats")(users);
+  const habitsRouter = require("./routes/habits")(users);
+  const tasksRouter = require("./routes/tasks")(users); // if implemented
+  const statsRouter = require("./routes/stats")(users);
 
   // Mount protected routes
   app.use("/streaks", requireAuth, streaksRouter);
-  app.use("/habits",  requireAuth, habitsRouter);
-  app.use("/tasks",   requireAuth, tasksRouter);
-  app.use("/stats",   requireAuth, statsRouter);
+  app.use("/habits", requireAuth, habitsRouter);
+  app.use("/tasks", requireAuth, tasksRouter);
+  app.use("/stats", requireAuth, statsRouter);
 
   // Auth / account routes
   app.use(authRoutes({ CONFIG, users, auth, emailVerify, mailer }));
   if (CONFIG.AUTH_ALLOW_LOCAL) app.use(localRoutes({ users, auth }));
 
-  // Public test endpoint
+  // Health/public endpoints
+  app.get("/healthz", (_req, res) => res.send("ok")); // ✅ handy for Railway checks
   app.get("/public", (_req, res) => res.send("A public message\n"));
 
   // Password change route
@@ -107,8 +125,9 @@ const buildAccountRoutes = require("./routes/account");
   });
 
   // ----- Listen -----
-  app.listen(CONFIG.PORT, CONFIG.HOSTNAME, () => {
-    console.log(`http://${CONFIG.HOSTNAME}:${CONFIG.PORT}`);
+  // ✅ On Railway, DO NOT bind to a hostname; let Node use 0.0.0.0
+  app.listen(CONFIG.PORT, () => {
+    console.log(`listening on :${CONFIG.PORT}`);
   });
 })().catch((e) => {
   console.error("Failed to start server:", e);

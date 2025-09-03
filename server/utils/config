@@ -1,26 +1,55 @@
 // utils/config.js
 const env = process.env;
-
 const isProd = env.NODE_ENV === "production";
-// Set this to "true" on Railway if frontend & backend are on different subdomains
-const crossSite = env.CROSS_SITE_COOKIES === "true";
+
+function normalizeOrigin(url) {
+  try {
+    const u = new URL(url);
+    // Rebuild origin, ignore trailing slashes
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return url?.replace(/\/+$/, "");
+  }
+}
+
+function requireVar(name) {
+  const v = env[name];
+  if (!v && isProd) throw new Error(`Missing required env var: ${name}`);
+  return v;
+}
+
+const FRONTEND_URL = normalizeOrigin(
+  env.FRONTEND_URL || "http://localhost:3001"
+);
+const OAUTH_CALLBACK_URL =
+  env.OAUTH_CALLBACK_URL || "http://localhost:3000/auth/google/callback";
+
+// Decide cross-site automatically when possible, but allow override
+const crossSiteAuto = (() => {
+  try {
+    const be = new URL(OAUTH_CALLBACK_URL).origin;
+    const fe = new URL(FRONTEND_URL).origin;
+    return be !== fe;
+  } catch {
+    return false;
+  }
+})();
+const crossSite =
+  (env.CROSS_SITE_COOKIES === "true") || crossSiteAuto;
 
 module.exports = {
   PORT: Number(env.PORT || 3000),
 
-  // Frontend origin (your React app URL)
-  FRONTEND_URL: env.FRONTEND_URL || "http://localhost:3001",
-
-  // Must EXACTLY match the Google OAuth redirect URI you set in Google Cloud
-  OAUTH_CALLBACK_URL:
-    env.OAUTH_CALLBACK_URL || "http://localhost:3000/auth/google/callback",
+  FRONTEND_URL,
+  OAUTH_CALLBACK_URL,
 
   AUTH_ALLOW_LOCAL: env.AUTH_ALLOW_LOCAL !== "false",
 
   COOKIE: {
     httpOnly: true,
-    secure: isProd,                 // Railway is HTTPS
-    sameSite: crossSite ? "none" : "lax", // cross-site cookies need "none"
+    secure: isProd,                 // Railway is HTTPS in prod
+    sameSite: crossSite ? "none" : "lax",
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30d
   },
 
   SMTP: {
@@ -32,9 +61,9 @@ module.exports = {
   },
 
   GOOGLE: {
-    CLIENT_ID: env.GOOGLE_CLIENT_ID,
-    CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
+    CLIENT_ID: requireVar("GOOGLE_CLIENT_ID"),
+    CLIENT_SECRET: requireVar("GOOGLE_CLIENT_SECRET"),
   },
 
-  SESSION_SECRET: env.SESSION_SECRET,
+  SESSION_SECRET: requireVar("SESSION_SECRET"),
 };
