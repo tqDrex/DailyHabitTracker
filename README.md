@@ -43,7 +43,7 @@ cd server
 cp env_sample.json env.json
 ```
 
-2. Edit `env.json` and fill in your PostgreSQL database credentials:
+2. Edit `env.json` and `.env`, and fill in your PostgreSQL database credentials:
 
 ```json
 {
@@ -55,15 +55,34 @@ cp env_sample.json env.json
 }
 ```
 
-3. Ensure your PostgreSQL instance has the following table created:
+```json
+GOOGLE_CLIENT_ID= <client id>
 
-```sql
-CREATE TABLE users (
-  id SERIAL PRIMARY KEY,
-  username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL
-);
+GOOGLE_CLIENT_SECRET= <put your secret here>
+OAUTH_CALLBACK_URL=http://localhost:3000/auth/google/callback
+
+FRONTEND_URL=http://localhost:3001
+
+
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER= <your gmail>
+SMTP_PASS=  <get an app password from your gmail to send email>
+  # your generated app password (no spaces)
+SMTP_FROM="My App <your gmail>"
+
+SESSION_SECRET=<your_long_and_random_secret_string_here>
 ```
+
+Note the SMTP_PASS is your app password from your gamil, idelley it should be used to send out emails. 
+https://support.google.com/mail/answer/185833?hl=en
+
+
+
+3. Ensure your PostgreSQL instance has databased created name user_database, our server will create the rest of the data table.
+
+
 
 4. Install dependencies and start the server:
 
@@ -72,7 +91,7 @@ npm install
 node server.js
 ```
 
-> Ideally, the Express server runs on port `3000`
+> The Express server HAVE TO runs on port `3000`
 
 ---
 
@@ -84,7 +103,7 @@ npm install
 npm start
 ```
 
->Ideally, the React client runs on port `3001` and communicates with the server on `http://localhost:3000`
+>The React client HAVE TO runs on port `3001` and communicates with the server on `http://localhost:3000`
 
 ---
 
