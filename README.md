@@ -55,7 +55,7 @@ cp env_sample.json env.json
 }
 ```
 
-```json
+```txt
 GOOGLE_CLIENT_ID= <client id>
 
 GOOGLE_CLIENT_SECRET= <put your secret here>
